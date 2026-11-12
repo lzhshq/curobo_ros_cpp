@@ -30,6 +30,7 @@ workspace `~/curobo_ros_ws/src/curobo_ros_cpp` is a symlink to it.
 - [Architecture](docs/architecture.md): packages, data flow, threading, artifacts
 - [Bringup](docs/bringup.md): robot descriptor and one-command stack
 - [FPC](docs/fpc.md): streaming position adapter and fake FPC
+- [MPC](docs/mpc.md): official timing, C++ spike, frequency budget
 - [RViz](docs/rviz.md): tube path, robot model, ghost, launch arguments
 - [Fake hardware](docs/fake_hardware.md): fake Franka/AR5 JTC and terminals
 - [Troubleshooting](docs/troubleshooting.md): common errors and checks

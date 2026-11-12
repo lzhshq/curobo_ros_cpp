@@ -14,7 +14,7 @@ def _launch_setup(context, *args, **kwargs):
     parameters = [LaunchConfiguration('executor_config').perform(context)]
 
     overrides = {}
-    for name in ('adapter', 'action'):
+    for name in ('adapter', 'action', 'command_topic'):
         value = LaunchConfiguration(name).perform(context)
         if value:
             overrides[name] = value
@@ -25,7 +25,7 @@ def _launch_setup(context, *args, **kwargs):
             name.strip() for name in joint_names.split(',') if name.strip()
         ]
 
-    for name in ('time_scale', 'goal_tolerance', 'goal_time_tolerance'):
+    for name in ('time_scale', 'goal_tolerance', 'goal_time_tolerance', 'publish_rate'):
         value = LaunchConfiguration(name).perform(context)
         if value:
             overrides[name] = float(value)
@@ -69,6 +69,9 @@ def generate_launch_description():
             'action', default_value='',
             description='Override JTC action name'),
         DeclareLaunchArgument(
+            'command_topic', default_value='',
+            description='Override FPC/topic command topic'),
+        DeclareLaunchArgument(
             'joint_names', default_value='',
             description='Override controller joint names, comma-separated'),
         DeclareLaunchArgument(
@@ -80,5 +83,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'goal_time_tolerance', default_value='',
             description='Override goal_time_tolerance'),
+        DeclareLaunchArgument(
+            'publish_rate', default_value='',
+            description='Override FPC publish rate'),
         OpaqueFunction(function=_launch_setup),
     ])

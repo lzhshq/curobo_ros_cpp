@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "curobo_execution_cpp/fpc_adapter.hpp"
 #include "curobo_execution_cpp/jtc_adapter.hpp"
 #include "curobo_execution_cpp/topic_adapter.hpp"
 
@@ -34,6 +35,7 @@ TrajectoryExecutor::TrajectoryExecutor() : rclcpp::Node("curobo_executor") {
       "action", "/position_joint_trajectory_controller/follow_joint_trajectory");
   const std::string command_topic =
       this->declare_parameter<std::string>("command_topic", "/execute_trajectory");
+  const double publish_rate = this->declare_parameter<double>("publish_rate", 100.0);
   const std::string trajectory_topic = this->declare_parameter<std::string>(
       "trajectory_topic", "/curobo_planner/planned_trajectory");
   time_scale_ = this->declare_parameter<double>("time_scale", 1.0);
@@ -48,8 +50,10 @@ TrajectoryExecutor::TrajectoryExecutor() : rclcpp::Node("curobo_executor") {
                                             goal_time_tolerance);
   } else if (adapter == "topic") {
     adapter_ = std::make_unique<TopicAdapter>(this, command_topic);
+  } else if (adapter == "fpc") {
+    adapter_ = std::make_unique<FpcAdapter>(this, command_topic, joint_names, publish_rate);
   } else {
-    throw std::runtime_error("unknown adapter '" + adapter + "' (use jtc or topic)");
+    throw std::runtime_error("unknown adapter '" + adapter + "' (use jtc, topic or fpc)");
   }
 
   trajectory_sub_ = this->create_subscription<trajectory_msgs::msg::JointTrajectory>(

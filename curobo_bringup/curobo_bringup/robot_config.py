@@ -224,16 +224,24 @@ def load_robot_config(
         raise ValueError(f"{descriptor}: execution mapping is required")
     adapter = str(execution.get("adapter", "jtc")).strip()
     action = str(execution.get("action", "")).strip()
+    command_topic = str(execution.get("command_topic", "")).strip()
     if not adapter:
         raise ValueError(f"{descriptor}: execution.adapter is required")
-    if not action:
-        raise ValueError(f"{descriptor}: execution.action is required")
+    if adapter == "jtc" and not action:
+        raise ValueError(f"{descriptor}: execution.action is required for jtc")
+    if adapter in ("fpc", "topic") and not command_topic:
+        raise ValueError(
+            f"{descriptor}: execution.command_topic is required for {adapter}"
+        )
     execution_params: dict[str, Any] = {
         "adapter": adapter,
-        "action": action,
         "joint_names": list(controller_joints),
     }
-    for key in ("time_scale", "goal_tolerance", "goal_time_tolerance"):
+    if action:
+        execution_params["action"] = action
+    if command_topic:
+        execution_params["command_topic"] = command_topic
+    for key in ("time_scale", "goal_tolerance", "goal_time_tolerance", "publish_rate"):
         if key in execution:
             execution_params[key] = execution[key]
 

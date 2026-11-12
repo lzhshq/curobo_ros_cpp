@@ -29,6 +29,7 @@ workspace `~/curobo_ros_ws/src/curobo_ros_cpp` is a symlink to it.
 
 - [Architecture](docs/architecture.md): packages, data flow, threading, artifacts
 - [Bringup](docs/bringup.md): robot descriptor and one-command stack
+- [FPC](docs/fpc.md): streaming position adapter and fake FPC
 - [RViz](docs/rviz.md): tube path, robot model, ghost, launch arguments
 - [Fake hardware](docs/fake_hardware.md): fake Franka/AR5 JTC and terminals
 - [Troubleshooting](docs/troubleshooting.md): common errors and checks
@@ -40,7 +41,7 @@ workspace `~/curobo_ros_ws/src/curobo_ros_cpp` is a symlink to it.
 |---|---|
 | `curobo_core_cpp` | ROS-free planning library (`PlannerCore`) |
 | `curobo_planner_cpp` | Thin `rclcpp` node + `PlanPose`/scene services + `planned_trajectory` publisher |
-| `curobo_execution_cpp` | Trajectory executor + JTC/topic adapters |
+| `curobo_execution_cpp` | Trajectory executor + JTC/topic/FPC adapters |
 | `curobo_planner_interfaces` | Minimal `PlanPose`, `AddObject`, `RemoveObject`, `ClearObjects` services (no nav2 dependency) |
 | `curobo_bringup` | Robot descriptors + combined planner/executor/RViz launch |
 

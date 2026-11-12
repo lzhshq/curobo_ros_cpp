@@ -81,12 +81,15 @@ def _launch_setup(context, *args, **kwargs):
     )
     execution_arguments = {
         "adapter": str(config.execution["adapter"]),
-        "action": str(config.execution["action"]),
         "joint_names": ",".join(config.controller_joints),
     }
-    for key in ("time_scale", "goal_tolerance", "goal_time_tolerance"):
+    if "action" in config.execution:
+        execution_arguments["action"] = str(config.execution["action"])
+    for key in ("time_scale", "goal_tolerance", "goal_time_tolerance", "publish_rate"):
         if key in config.execution:
             execution_arguments[key] = str(config.execution[key])
+    if "command_topic" in config.execution:
+        execution_arguments["command_topic"] = str(config.execution["command_topic"])
     execution_arguments["executor_config"] = executor_config
     actions.append(IncludeLaunchDescription(
         PythonLaunchDescriptionSource(execution_launch),

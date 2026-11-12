@@ -26,7 +26,8 @@ Execution is separate:
         ▼
 curobo_execution_cpp::TrajectoryExecutor
         ├─ JtcAdapter   → FollowJointTrajectory action
-        └─ TopicAdapter → JointTrajectory topic
+        ├─ TopicAdapter → JointTrajectory topic
+        └─ FpcAdapter   → Float64MultiArray position stream
 ```
 
 Visualization is separate too:

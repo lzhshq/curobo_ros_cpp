@@ -11,6 +11,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_robot_config test/test_robot_config.py)
 
   ament_add_pytest_test(test_robot_stack test/test_robot_stack.py TIMEOUT 120)
+  ament_add_pytest_test(test_fpc_stack test/test_fpc_stack.py TIMEOUT 120)
 endif()
 
 install(DIRECTORY launch config

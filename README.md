@@ -110,6 +110,14 @@ The node also publishes the same trajectory as
 `trajectory_msgs/JointTrajectory` on `~/planned_trajectory` for a separate
 execution/controller node.
 
+A small Python client is included:
+
+```bash
+python3 scripts/call_plan.py \
+  --target 0.246493 0.0480554 0.787101 -0.0344956 0.360789 0.0935708 0.9273 \
+  --start 0 0 0 0.74175 0 0 0
+```
+
 ## Parameters
 
 | Parameter | Default | Meaning |

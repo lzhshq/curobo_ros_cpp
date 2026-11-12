@@ -30,3 +30,4 @@ curobo_planner:
     joint_states_topic: "~/joint_states"
     publish_trajectory: true
     publish_path: true
+    path_marker_radius: 0.006

@@ -76,6 +76,7 @@ class PlannerNode : public rclcpp::Node {
   std::string base_frame_;
   bool publish_trajectory_enabled_ = true;
   bool publish_path_enabled_ = true;
+  double path_marker_radius_ = 0.006;
 };
 
 }  // namespace curobo_ros_cpp

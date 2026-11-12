@@ -23,6 +23,35 @@ std::string join(const std::vector<std::string>& values) {
   return result;
 }
 
+geometry_msgs::msg::Quaternion quaternion_from_z_to(float dx, float dy, float dz) {
+  geometry_msgs::msg::Quaternion quaternion;
+  quaternion.w = 1.0;
+  const float norm = std::sqrt(dx * dx + dy * dy + dz * dz);
+  if (norm < 1e-9F) {
+    return quaternion;
+  }
+  dx /= norm;
+  dy /= norm;
+  dz /= norm;
+  const float dot = dz;
+  if (dot > 1.0F - 1e-6F) {
+    return quaternion;
+  }
+  if (dot < -1.0F + 1e-6F) {
+    quaternion.x = 1.0;
+    quaternion.w = 0.0;
+    return quaternion;
+  }
+  const float angle = std::acos(dot);
+  const float axis_norm = std::sqrt(dx * dx + dy * dy);
+  const float scale = std::sin(angle * 0.5F) / axis_norm;
+  quaternion.x = -dy * scale;
+  quaternion.y = dx * scale;
+  quaternion.z = 0.0;
+  quaternion.w = std::cos(angle * 0.5F);
+  return quaternion;
+}
+
 }  // namespace
 
 PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
@@ -43,6 +72,7 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
   this->declare_parameter<std::string>("base_frame", "");
   this->declare_parameter<bool>("publish_trajectory", true);
   this->declare_parameter<bool>("publish_path", true);
+  this->declare_parameter<double>("path_marker_radius", 0.006);
   this->declare_parameter<bool>("node_is_available", false);
 
   std::string artifact_dir = this->get_parameter("artifact_dir").as_string();
@@ -81,6 +111,7 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
   base_frame_ = this->get_parameter("base_frame").as_string();
   publish_trajectory_enabled_ = this->get_parameter("publish_trajectory").as_bool();
   publish_path_enabled_ = this->get_parameter("publish_path").as_bool();
+  path_marker_radius_ = this->get_parameter("path_marker_radius").as_double();
 
   RCLCPP_INFO(this->get_logger(), "Loaded artifact: %s", artifact_dir.c_str());
   RCLCPP_INFO(this->get_logger(), "dof=%d joints=[%s] tools=[%s]", core_->num_dof(),
@@ -426,6 +457,38 @@ void PlannerNode::publish_path(const PlanResult& result) {
     marker.pose.orientation.w = 1.0;
     markers.markers.push_back(std::move(marker));
   };
+  for (std::size_t i = 1; i < tool_path.size(); ++i) {
+    const auto& first = tool_path[i - 1];
+    const auto& second = tool_path[i];
+    const double dx = second.position[0] - first.position[0];
+    const double dy = second.position[1] - first.position[1];
+    const double dz = second.position[2] - first.position[2];
+    const double length = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (length < 1e-6) {
+      continue;
+    }
+
+    visualization_msgs::msg::Marker tube;
+    tube.header = path.header;
+    tube.ns = "planned_tube";
+    tube.id = static_cast<int>(100 + i);
+    tube.type = visualization_msgs::msg::Marker::CYLINDER;
+    tube.action = visualization_msgs::msg::Marker::ADD;
+    tube.scale.x = path_marker_radius_;
+    tube.scale.y = path_marker_radius_;
+    tube.scale.z = length;
+    tube.color.r = 0.0F;
+    tube.color.g = 1.0F;
+    tube.color.b = 1.0F;
+    tube.color.a = 1.0F;
+    tube.pose.position.x = static_cast<float>((first.position[0] + second.position[0]) * 0.5);
+    tube.pose.position.y = static_cast<float>((first.position[1] + second.position[1]) * 0.5);
+    tube.pose.position.z = static_cast<float>((first.position[2] + second.position[2]) * 0.5);
+    tube.pose.orientation = quaternion_from_z_to(
+        static_cast<float>(dx), static_cast<float>(dy), static_cast<float>(dz));
+    markers.markers.push_back(std::move(tube));
+  }
+
   make_sphere(0, tool_path.front(), 1.0F, 0.0F, 0.0F);
   make_sphere(1, tool_path.back(), 0.0F, 1.0F, 0.0F);
   marker_pub_->publish(markers);

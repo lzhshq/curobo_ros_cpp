@@ -282,14 +282,29 @@ ros2 launch curobo_planner_cpp rviz.launch.py base_frame:=panda_link0
 
 The default RViz config shows:
 
-- `Path` on `/curobo_planner/planned_path`
+- `Path` on `/curobo_planner/planned_path` (disabled by default)
 - `MarkerArray` on `/curobo_planner/planned_markers`
-- `RobotModel` disabled by default; enable it if `/robot_description` is
-  published by your robot stack
+- `RobotModel` disabled by default
 
-`base_frame` must match the artifact base frame; otherwise the path will not
-appear under the fixed frame. RViz shows the **tool** path, not the whole arm.
-It is visualization only; execution still goes through `curobo_execution_cpp`.
+The trajectory is rendered as **thin 3D cylinders** (radius
+`path_marker_radius`, default 0.006 m) between consecutive tool poses, plus
+red/green start/goal spheres. The flat `Path` display is kept for diagnostics
+but disabled by default.
+
+To show a Franka model, start `robot_state_publisher` through the same launch
+with a URDF:
+
+```bash
+ros2 launch curobo_planner_cpp rviz.launch.py \
+  base_frame:=panda_link0 \
+  robot_description:=/opt/ros/humble/share/moveit_resources_panda_description/urdf/panda.urdf \
+  show_robot:=true
+```
+
+`robot_state_publisher` consumes `/joint_states` from the fake JTC and updates
+the TF tree; RViz then shows the Franka model moving with the fake hardware.
+This is the same approach as curobo_ros: it does not embed a model inside the
+planner; it relies on URDF + `robot_state_publisher` + `/joint_states`.
 
 ## Franka fake JTC (no MuJoCo)
 
@@ -354,10 +369,11 @@ Verified: 10 trajectory points, result `code=0 trajectory completed`, and
 | `joint_states_topic` | `~/joint_states` | Start-state source |
 | `publish_trajectory` | `true` | Publish `~/planned_trajectory` |
 | `publish_path` | `true` | Publish `~/planned_path` and markers |
+| `path_marker_radius` | `0.006` | Radius of the 3D tube marker (m) |
 
 Path resolution order: `artifact_dir` → `artifact_root/robot` → error.
 
-## Scope (v0.5)
+## Scope (v0.6)
 
 Included:
 
@@ -368,7 +384,8 @@ Included:
 - Primitive scene: `CUBOID`, `SPHERE`, `CAPSULE`, `CYLINDER`
 - `AddObject` / `RemoveObject` / `ClearObjects` services
 - `curobo_execution_cpp`: JTC and topic adapters
-- RViz `Path` + start/goal markers
+- RViz thin-cylinder path + start/goal markers
+- Optional Franka `RobotModel` via `robot_state_publisher`
 - Kinematic fake JTC for Franka/tickbot (`tools/fake_jtc.py`)
 
 Not included (next steps):

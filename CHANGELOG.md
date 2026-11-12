@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.6.0
+
+- Replaced the flat `LINE_STRIP` path with 3D cylinder segments
+  (`path_marker_radius`, default 0.006 m).
+- Disabled the flat RViz `Path` display by default; markers render the tube.
+- Added optional `robot_state_publisher` + Franka URDF to `rviz.launch.py`
+  (`show_robot:=true`).
+- Verified full Franka model + cyan tube path in RViz with fake JTC.
+
 ## v0.5.1
 
 - `planner.launch.py` reads `CUROBO_ARTIFACT_ROOT` as the default artifact root.

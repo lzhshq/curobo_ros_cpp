@@ -60,9 +60,9 @@ All runs were feasible and used **one graph capture**.
 - The FPC stream can still publish at **100 Hz**; that only interpolates the
   accepted MPC trajectory, it does not run the optimizer at 100 Hz.
 
-## MPC node skeleton
+## MPC node
 
-`curobo_mpc_cpp` now contains an **experimental open-loop horizon node**:
+`curobo_mpc_cpp` contains an **experimental closed-loop node**:
 
 ```bash
 # terminal 1
@@ -84,22 +84,32 @@ It:
 1. waits for `/joint_states`;
 2. calls `MpcController::reset_cartesian()` on a goal;
 3. runs `step()` at `mpc_rate` until feasible;
-4. streams the returned horizon at `command_rate` to the FPC topic;
-5. reports `completed` on `/curobo_mpc/status`.
+4. calls `validate_trajectory()` on the result;
+5. streams **four knot intervals** at `command_rate` to the FPC topic;
+6. calls `accept()` at the handoff boundary and replans from the measured
+   joint state;
+7. repeats until `max_handoffs` or `/curobo_mpc/cancel`.
+
+The first handoff is `4 * (trajectory_steps - 1) / (num_knots + 4)` samples
+(16 samples for Franka). `executed_knots` is 4 after each handoff, matching the
+MPC fixture's advance.
 
 Current limitations:
 
-- **open-loop**: one horizon per goal, no receding-horizon replanning yet;
-- `accept()` is called when streaming starts, not after a handoff ACK;
-- `validate_trajectory()` is not wired yet;
+- no hardware admission/ACK: `accept()` is called after the command window
+  finishes, not after a controller acknowledgement;
+- no terminal-pose convergence check; it stops at `max_handoffs` (default 200)
+  or cancel;
 - the seed is the current joint state repeated; difficult goals may need a
   better seed or `constrain_path=false`;
+- goal is assumed to already be in the artifact base frame (no TF transform);
+- command window is 4 knots (~0.48 s for dt=0.03), not yet tuned to
+  curobo_ros's 0.24 s;
 - no RViz goal interaction yet.
 
-Next closed-loop step:
+Next tuning:
 
-1. replan at each knot handoff;
-2. `step(state, executed_knots)` + `accept()` after admission;
-3. `validate_trajectory()` before publishing;
-4. command-window pacing experiment (start below curobo_ros's 0.24 s);
-5. only then real hardware.
+1. convergence stop (TCP error) instead of `max_handoffs`;
+2. command-window sweep (1, 2, 4, 8 knots) against fake FPC;
+3. real hardware admission/ACK and braking validation;
+4. only then real hardware.

@@ -45,7 +45,7 @@ workspace `~/curobo_ros_ws/src/curobo_ros_cpp` is a symlink to it.
 | `curobo_execution_cpp` | Trajectory executor + JTC/topic/FPC adapters |
 | `curobo_planner_interfaces` | Minimal `PlanPose`, `AddObject`, `RemoveObject`, `ClearObjects` services (no nav2 dependency) |
 | `curobo_bringup` | Robot descriptors + combined planner/executor/RViz launch |
-| `curobo_mpc_cpp` | Experimental C++ MPC horizon node (open-loop skeleton) |
+| `curobo_mpc_cpp` | Experimental closed-loop C++ MPC node (4-knot handoff) |
 
 `curobo_msgs` is intentionally not required: its `GetVoxelGrid.srv` depends on
 `nav2_msgs`, which a planning-only node does not need.

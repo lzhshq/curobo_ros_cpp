@@ -54,12 +54,12 @@ std::vector<std::string> split_names(const std::string& text) {
 }  // namespace
 
 /**
- * Experimental open-loop MPC horizon node.
+ * Experimental closed-loop MPC node.
  *
- * One feasible horizon is computed for a Cartesian goal and streamed to a
- * ForwardCommandController. It does NOT close the loop yet: accept() is called
- * when streaming starts, and a new goal triggers a new horizon. This is the
- * scaffold for the full 30-33 Hz step/accept/validate loop.
+ * step() runs at mpc_rate; one knot interval of the feasible horizon is streamed
+ * to a ForwardCommandController at command_rate. At the handoff boundary the
+ * horizon is accepted and the next step uses the measured joint state. This is
+ * still a scaffold: it has no real hardware admission/ACK or Cartesian goal TF.
  */
 class MpcNode : public rclcpp::Node {
  public:
@@ -78,6 +78,7 @@ class MpcNode : public rclcpp::Node {
     command_rate_ = this->declare_parameter<double>("command_rate", 100.0);
     const double trajectory_dt = this->declare_parameter<double>(
         "trajectory_dt", 0.03);
+    max_handoffs_ = this->declare_parameter<int>("max_handoffs", 200);
     const auto controller_joints =
         this->declare_parameter<std::vector<std::string>>(
             "controller_joints", std::vector<std::string>{});
@@ -148,6 +149,12 @@ class MpcNode : public rclcpp::Node {
     if (steps_ <= 0 || knots_ <= 0) {
       throw std::runtime_error("MPC artifact has no trajectory layout");
     }
+    // Four knot intervals per handoff, matching the MPC fixture's advance.
+    handoff_index_ = std::max(1, 4 * (steps_ - 1) / (knots_ + 4));
+    handoff_index_ = std::min(handoff_index_, steps_ - 1);
+    state_v_.assign(static_cast<std::size_t>(dof_), 0.0F);
+    next_v_.assign(static_cast<std::size_t>(dof_), 0.0F);
+    next_q_.assign(static_cast<std::size_t>(dof_), 0.0F);
 
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_q_), dof_ * sizeof(float)), "malloc q");
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_v_), dof_ * sizeof(float)), "malloc v");
@@ -286,33 +293,46 @@ class MpcNode : public rclcpp::Node {
     mpc_->reset_cartesian(d_goal_pos_, d_goal_quat_, d_seed_, objective);
     pending_goal_ = true;
     solved_ = false;
+    streaming_ = false;
+    executed_knots_ = 0;
+    handoffs_ = 0;
+    state_v_.assign(static_cast<std::size_t>(dof_), 0.0F);
     set_status("goal received");
   }
 
   void solve_callback() {
-    if (!pending_goal_ || solved_) return;
+    if (!pending_goal_ || solved_ || streaming_) return;
     std::vector<float> q;
     if (!current_state(q)) return;
 
-    std::vector<float> zero(static_cast<std::size_t>(dof_), 0.0F);
+    if (state_v_.size() != static_cast<std::size_t>(dof_)) {
+      state_v_.assign(static_cast<std::size_t>(dof_), 0.0F);
+    }
     check_cuda(cudaMemcpy(d_q_, q.data(), q.size() * sizeof(float), cudaMemcpyHostToDevice),
                "copy q");
-    check_cuda(cudaMemcpy(d_v_, zero.data(), zero.size() * sizeof(float),
+    check_cuda(cudaMemcpy(d_v_, state_v_.data(), state_v_.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "copy v");
-    check_cuda(cudaMemcpy(d_a_, zero.data(), zero.size() * sizeof(float),
-                          cudaMemcpyHostToDevice), "copy a");
-    check_cuda(cudaMemcpy(d_j_, zero.data(), zero.size() * sizeof(float),
-                          cudaMemcpyHostToDevice), "copy jerk");
+    check_cuda(cudaMemset(d_a_, 0, d_a_ ? dof_ * sizeof(float) : 0), "clear a");
+    check_cuda(cudaMemset(d_j_, 0, d_j_ ? dof_ * sizeof(float) : 0), "clear jerk");
 
     const auto begin = std::chrono::steady_clock::now();
-    const auto result = mpc_->step(d_q_, d_v_, d_a_, d_j_, 0);
+    const auto result = mpc_->step(d_q_, d_v_, d_a_, d_j_, executed_knots_);
     const double solve_ms = std::chrono::duration<double, std::milli>(
                                 std::chrono::steady_clock::now() - begin)
                                 .count();
-    RCLCPP_INFO(this->get_logger(), "MPC step feasible=%s solve_ms=%.2f",
-                result.feasible ? "true" : "false", solve_ms);
+    RCLCPP_DEBUG(this->get_logger(),
+                 "MPC step feasible=%s solve_ms=%.2f knots=%d",
+                 result.feasible ? "true" : "false", solve_ms, executed_knots_);
     if (!result.feasible) {
+      // The shift is consumed even on failure; retry at the same handoff.
+      executed_knots_ = 0;
       set_status("infeasible");
+      return;
+    }
+    if (!mpc_->validate_trajectory(result.position, result.velocity, result.acceleration,
+                                   result.jerk, result.trajectory_dt)) {
+      executed_knots_ = 0;
+      set_status("validation failed");
       return;
     }
 
@@ -320,13 +340,39 @@ class MpcNode : public rclcpp::Node {
     check_cuda(cudaMemcpy(horizon_.data(), result.position,
                           horizon_.size() * sizeof(float), cudaMemcpyDeviceToHost),
                "copy MPC horizon");
+    check_cuda(cudaMemcpy(next_v_.data(), result.velocity + handoff_index_ * dof_,
+                          next_v_.size() * sizeof(float), cudaMemcpyDeviceToHost),
+               "copy handoff velocity");
+    const std::size_t offset = static_cast<std::size_t>(handoff_index_) * dof_;
+    std::copy(horizon_.begin() + static_cast<std::ptrdiff_t>(offset),
+              horizon_.begin() + static_cast<std::ptrdiff_t>(offset + dof_),
+              next_q_.begin());
     horizon_dt_ = result.trajectory_dt;
+    float max_delta = 0.0F;
+    int max_joint = 0;
+    float max_value = 0.0F;
+    for (int i = 0; i < steps_; ++i) {
+      for (int j = 0; j < dof_; ++j) {
+        const float delta = std::abs(horizon_[static_cast<std::size_t>(i) * dof_ + j] -
+                                     horizon_[static_cast<std::size_t>(j)]);
+        if (delta > max_delta) {
+          max_delta = delta;
+          max_joint = j;
+          max_value = horizon_[static_cast<std::size_t>(i) * dof_ + j];
+        }
+      }
+    }
+    RCLCPP_DEBUG(this->get_logger(),
+                 "horizon max_delta=%.5f joint=%d value=%.5f", max_delta, max_joint, max_value);
+    stream_duration_ = horizon_dt_ * static_cast<double>(handoff_index_);
     stream_start_ = std::chrono::steady_clock::now();
     streaming_ = true;
     solved_ = true;
-    mpc_->accept();
     set_status("streaming");
-    stream_callback();
+    publish_sample(0, 0.0);
+    RCLCPP_DEBUG(this->get_logger(),
+                 "MPC horizon accepted: dt=%.4f handoff_samples=%d handoff_s=%.3f",
+                 horizon_dt_, handoff_index_, stream_duration_);
   }
 
   void stream_callback() {
@@ -334,17 +380,26 @@ class MpcNode : public rclcpp::Node {
     const double elapsed = std::chrono::duration<double>(
                                std::chrono::steady_clock::now() - stream_start_)
                                .count();
-    const double duration = horizon_dt_ * static_cast<double>(steps_ - 1);
-    if (elapsed >= duration) {
-      publish_sample(static_cast<std::size_t>(steps_ - 1), 0.0);
+    if (elapsed >= stream_duration_) {
+      publish_sample(static_cast<std::size_t>(handoff_index_), 0.0);
       streaming_ = false;
-      set_status("completed");
-      RCLCPP_INFO(this->get_logger(), "MPC horizon stream completed");
+      mpc_->accept();
+      executed_knots_ = 4;
+      state_v_ = next_v_;
+      ++handoffs_;
+      if (handoffs_ >= max_handoffs_) {
+        pending_goal_ = false;
+        set_status("completed");
+        RCLCPP_INFO(this->get_logger(), "MPC reached max_handoffs=%d", max_handoffs_);
+      } else {
+        solved_ = false;
+        set_status("tracking");
+      }
       return;
     }
     const std::size_t index = std::min(
-        static_cast<std::size_t>(elapsed / horizon_dt_),
-        static_cast<std::size_t>(steps_ - 1));
+        static_cast<std::size_t>(elapsed / std::max(horizon_dt_, 1e-6F)),
+        static_cast<std::size_t>(handoff_index_));
     const double base = static_cast<double>(index) * horizon_dt_;
     const double ratio = horizon_dt_ > 0.0 ? (elapsed - base) / horizon_dt_ : 0.0;
     publish_sample(index, std::clamp(ratio, 0.0, 1.0));
@@ -369,6 +424,7 @@ class MpcNode : public rclcpp::Node {
       std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
     streaming_ = false;
     pending_goal_ = false;
+    solved_ = false;
     response->success = true;
     response->message = "MPC stream canceled";
     set_status("canceled");
@@ -382,6 +438,10 @@ class MpcNode : public rclcpp::Node {
   int tool_count_ = 0;
   int steps_ = 0;
   int knots_ = 0;
+  int handoff_index_ = 0;
+  int max_handoffs_ = 200;
+  int handoffs_ = 0;
+  int executed_knots_ = 0;
 
   std::unique_ptr<curobo::robot::Kinematics> kinematics_;
   std::unique_ptr<curobo::robot::Scene> scene_;
@@ -408,7 +468,11 @@ class MpcNode : public rclcpp::Node {
   bool solved_ = false;
   bool streaming_ = false;
   std::vector<float> horizon_;
+  std::vector<float> state_v_;
+  std::vector<float> next_q_;
+  std::vector<float> next_v_;
   float horizon_dt_ = 0.0F;
+  double stream_duration_ = 0.0;
   std::chrono::steady_clock::time_point stream_start_{};
   std::string status_ = "idle";
 

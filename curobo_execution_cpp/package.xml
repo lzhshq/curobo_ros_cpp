@@ -2,13 +2,16 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>curobo_execution_cpp</name>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
   <description>Transport adapters (JTC/topic) for planned cuRobo trajectories.</description>
   <maintainer email="384336014@qq.com">lzhshq</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>builtin_interfaces</exec_depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
   <depend>control_msgs</depend>

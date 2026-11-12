@@ -283,6 +283,45 @@ The default RViz config shows:
 appear under the fixed frame. RViz shows the **tool** path, not the whole arm.
 It is visualization only; execution still goes through `curobo_execution_cpp`.
 
+## Franka fake JTC (no MuJoCo)
+
+`curobo_execution_cpp` ships a kinematic fake JTC: it accepts
+`FollowJointTrajectory`, interpolates positions, publishes `/joint_states`, and
+returns a standard result. It is **not** a physics simulator; MuJoCo is not
+required for the ROS 2 JTC/RViz validation.
+
+Start the fake Franka JTC:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/curobo_ros_ws/install/setup.bash
+export ROS_DOMAIN_ID=79
+ros2 launch curobo_execution_cpp fake_franka.launch.py
+```
+
+Start the planner with the Franka artifact:
+
+```bash
+ros2 run curobo_planner_cpp planner_node --ros-args   -p artifact_dir:=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts/franka   -p base_frame:=panda_link0
+```
+
+Start the executor with the Franka config:
+
+```bash
+ros2 launch curobo_execution_cpp execution.launch.py   config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_execution_cpp/config/robots/franka.yaml
+```
+
+Plan and execute:
+
+```bash
+python3 scripts/call_plan.py   --target 0.158068 0.032042 0.636847 -0.984526 -0.0915269 -0.148579 0.0160041   --start 0 -1.3 0 -2.5 0 1.5 0.8
+ros2 service call /curobo_executor/execute_latest std_srvs/srv/Trigger
+ros2 service call /curobo_executor/status std_srvs/srv/Trigger
+```
+
+Verified: 10 trajectory points, result `code=0 trajectory completed`, and
+`/joint_states` ends at the planned `panda_joint1..7` positions.
+
 ## Parameters
 
 | Parameter | Default | Meaning |
@@ -304,7 +343,7 @@ It is visualization only; execution still goes through `curobo_execution_cpp`.
 
 Path resolution order: `artifact_dir` → `artifact_root/robot` → error.
 
-## Scope (v0.4)
+## Scope (v0.5)
 
 Included:
 
@@ -316,6 +355,7 @@ Included:
 - `AddObject` / `RemoveObject` / `ClearObjects` services
 - `curobo_execution_cpp`: JTC and topic adapters
 - RViz `Path` + start/goal markers
+- Kinematic fake JTC for Franka/tickbot (`tools/fake_jtc.py`)
 
 Not included (next steps):
 

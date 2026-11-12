@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.0
+
+- Added `tools/fake_jtc.py`: a kinematic FollowJointTrajectory server that
+  publishes `/joint_states`.
+- Added `fake_franka.launch.py` with `panda_joint1..7`.
+- Verified Franka plan -> fake JTC -> `/joint_states` end-to-end without MuJoCo.
+
 ## v0.4.0
 
 - Added `~/planned_path` (`nav_msgs/Path`) from FK tool poses.

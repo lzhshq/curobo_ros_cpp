@@ -30,6 +30,10 @@ ament_target_dependencies(trajectory_executor
 install(TARGETS trajectory_executor
   DESTINATION lib/${PROJECT_NAME})
 
+install(PROGRAMS tools/fake_jtc.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME fake_jtc)
+
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
 

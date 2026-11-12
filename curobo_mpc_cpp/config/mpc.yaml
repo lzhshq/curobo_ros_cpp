@@ -1,0 +1,9 @@
+curobo_mpc:
+  ros__parameters:
+    artifact_dir: ""
+    trajectory_dt: 0.03
+    mpc_rate: 30.0
+    command_rate: 100.0
+    command_topic: /position_forward_controller/commands
+    joint_states_topic: /joint_states
+    goal_topic: /curobo_mpc/goal

@@ -60,17 +60,46 @@ All runs were feasible and used **one graph capture**.
 - The FPC stream can still publish at **100 Hz**; that only interpolates the
   accepted MPC trajectory, it does not run the optimizer at 100 Hz.
 
-## Next MPC step
+## MPC node skeleton
 
-Build `curobo_mpc_cpp` around this spike:
+`curobo_mpc_cpp` now contains an **experimental open-loop horizon node**:
 
-1. `MpcController` per artifact/planner.
-2. 30–33 Hz `step()` loop from `/joint_states`.
-3. `accept()` only after the execution handoff is admitted.
-4. `validate_trajectory()` before sending.
-5. FPC stream at 100 Hz.
-6. RViz goal and fake FPC first; real hardware later.
+```bash
+# terminal 1
+ros2 launch curobo_execution_cpp fake_fpc.launch.py
 
-Open question for the node: command-window pacing. curobo_ros uses 0.24 s
-(4.17 Hz) on real hardware; that is a safety/stability choice, not the
-optimizer rate.
+# terminal 2
+ros2 launch curobo_mpc_cpp mpc.launch.py \
+  artifact_dir:=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts/franka
+
+# terminal 3: send a small Cartesian goal in panda_link0
+ros2 topic pub --once /curobo_mpc/goal geometry_msgs/msg/PoseStamped \
+  "{header: {frame_id: panda_link0}, \
+    pose: {position: {x: 0.161283, y: 0.0, z: 0.641847}, \
+           orientation: {x: -0.988745, y: 0.007219, z: -0.149434, w: 0.001091}}}"
+```
+
+It:
+
+1. waits for `/joint_states`;
+2. calls `MpcController::reset_cartesian()` on a goal;
+3. runs `step()` at `mpc_rate` until feasible;
+4. streams the returned horizon at `command_rate` to the FPC topic;
+5. reports `completed` on `/curobo_mpc/status`.
+
+Current limitations:
+
+- **open-loop**: one horizon per goal, no receding-horizon replanning yet;
+- `accept()` is called when streaming starts, not after a handoff ACK;
+- `validate_trajectory()` is not wired yet;
+- the seed is the current joint state repeated; difficult goals may need a
+  better seed or `constrain_path=false`;
+- no RViz goal interaction yet.
+
+Next closed-loop step:
+
+1. replan at each knot handoff;
+2. `step(state, executed_knots)` + `accept()` after admission;
+3. `validate_trajectory()` before publishing;
+4. command-window pacing experiment (start below curobo_ros's 0.24 s);
+5. only then real hardware.

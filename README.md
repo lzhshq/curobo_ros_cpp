@@ -45,6 +45,7 @@ workspace `~/curobo_ros_ws/src/curobo_ros_cpp` is a symlink to it.
 | `curobo_execution_cpp` | Trajectory executor + JTC/topic/FPC adapters |
 | `curobo_planner_interfaces` | Minimal `PlanPose`, `AddObject`, `RemoveObject`, `ClearObjects` services (no nav2 dependency) |
 | `curobo_bringup` | Robot descriptors + combined planner/executor/RViz launch |
+| `curobo_mpc_cpp` | Experimental C++ MPC horizon node (open-loop skeleton) |
 
 `curobo_msgs` is intentionally not required: its `GetVoxelGrid.srv` depends on
 `nav2_msgs`, which a planning-only node does not need.
@@ -75,7 +76,7 @@ git clone git@github.com:lzhshq/curobo_ros_cpp.git
 cd ~/curobo_ros_ws
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install \
-  --packages-up-to curobo_bringup curobo_planner_cpp curobo_execution_cpp \
+  --packages-up-to curobo_bringup curobo_planner_cpp curobo_execution_cpp curobo_mpc_cpp \
   --cmake-args \
     -DCMAKE_BUILD_TYPE=Release \
     -DCUROBO_RUNTIME_ROOT=/home/vitai/curobo-fast/cpp_runtime

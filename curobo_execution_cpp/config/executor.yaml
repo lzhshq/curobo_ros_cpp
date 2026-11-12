@@ -1,0 +1,16 @@
+curobo_executor:
+  ros__parameters:
+    # jtc = FollowJointTrajectory action, topic = fire-and-forget JointTrajectory
+    adapter: jtc
+
+    action: /position_joint_trajectory_controller/follow_joint_trajectory
+    command_topic: /execute_trajectory
+    trajectory_topic: /curobo_planner/planned_trajectory
+
+    # Empty = use the joint_names in the planned trajectory.
+    # Set to controller joint names when the artifact uses different names.
+    joint_names: []
+
+    time_scale: 1.0
+    goal_tolerance: 0.02
+    goal_time_tolerance: 2.0

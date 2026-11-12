@@ -17,8 +17,10 @@ curobo_core_cpp::PlannerCore      (ROS-free: artifact + Scene + MotionPlanner)
 cuRobo C++ runtime (libcurobo_robot_runtime.so)
 ```
 
-It does **not** execute trajectories, drive hardware, run MPC, or contain a
-robot-specific model. A robot is selected by an exported artifact directory.
+The **planning node** does not execute trajectories or drive hardware. Execution
+lives in the separate `curobo_execution_cpp` package. MPC and robot-specific
+models are not part of this repository. A robot is selected by an exported
+artifact directory.
 
 ## Packages
 
@@ -26,6 +28,7 @@ robot-specific model. A robot is selected by an exported artifact directory.
 |---|---|
 | `curobo_core_cpp` | ROS-free planning library (`PlannerCore`) |
 | `curobo_planner_cpp` | Thin `rclcpp` node + `PlanPose`/scene services + `planned_trajectory` publisher |
+| `curobo_execution_cpp` | Trajectory executor + JTC/topic adapters |
 | `curobo_planner_interfaces` | Minimal `PlanPose`, `AddObject`, `RemoveObject`, `ClearObjects` services (no nav2 dependency) |
 
 `curobo_msgs` is intentionally not required: its `GetVoxelGrid.srv` depends on
@@ -57,7 +60,7 @@ git clone git@github.com:lzhshq/curobo_ros_cpp.git
 cd ~/curobo_ros_ws
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install \
-  --packages-up-to curobo_planner_cpp \
+  --packages-up-to curobo_planner_cpp curobo_execution_cpp \
   --cmake-args \
     -DCMAKE_BUILD_TYPE=Release \
     -DCUROBO_RUNTIME_ROOT=/home/vitai/curobo-fast/cpp_runtime
@@ -201,6 +204,53 @@ franka:  24/24 checks passed, 0 failures
 ROS:     add_object -> PlanPose failed -> remove_object -> PlanPose succeeded
 ```
 
+## Execution (v0.3)
+
+Execution is a separate package. The planner only publishes a
+`trajectory_msgs/JointTrajectory`; `curobo_execution_cpp` consumes it and sends
+it through an adapter.
+
+```text
+/curobo_planner/planned_trajectory
+        │
+        ▼
+curobo_executor
+  ├─ JtcAdapter   → control_msgs/action/FollowJointTrajectory
+  └─ TopicAdapter → trajectory_msgs/JointTrajectory topic
+```
+
+Start it with a robot config:
+
+```bash
+ros2 launch curobo_execution_cpp execution.launch.py \
+  config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_execution_cpp/config/robots/tickbot.yaml
+```
+
+Then, after a successful `PlanPose`:
+
+```bash
+ros2 service call /curobo_executor/execute_latest std_srvs/srv/Trigger
+ros2 service call /curobo_executor/status std_srvs/srv/Trigger
+ros2 service call /curobo_executor/cancel std_srvs/srv/Trigger
+```
+
+- Execution is **explicit** (`execute_latest`); planning does not move the robot.
+- `JtcAdapter` sends a `FollowJointTrajectory` goal and reports the action result.
+- `TopicAdapter` publishes the trajectory for a driver bridge (curobo_ros style).
+- `time_scale < 1` slows down the trajectory; `> 1` speeds it up.
+- `joint_names` maps artifact names to controller names. tickbot uses
+  `j1..j7` in the artifact and `joint1..7` in JTC; positions are assumed to be
+  in the same order.
+- `open_loop_control: true` in the tickbot JTC means tracking-error supervision
+  must be done outside JTC; this adapter currently relies on the action result.
+
+The tested chain:
+
+```text
+PlanPose (22 points) → execute_latest → JTC accepted → result code=0
+cancel while running → result code=-1 canceled
+```
+
 ## Parameters
 
 | Parameter | Default | Meaning |
@@ -221,7 +271,7 @@ ROS:     add_object -> PlanPose failed -> remove_object -> PlanPose succeeded
 
 Path resolution order: `artifact_dir` → `artifact_root/robot` → error.
 
-## Scope (v0.2)
+## Scope (v0.3)
 
 Included:
 
@@ -231,6 +281,7 @@ Included:
 - `PlanPose` service and `JointTrajectory` output
 - Primitive scene: `CUBOID`, `SPHERE`, `CAPSULE`, `CYLINDER`
 - `AddObject` / `RemoveObject` / `ClearObjects` services
+- `curobo_execution_cpp`: JTC and topic adapters
 
 Not included (next steps):
 
@@ -239,7 +290,7 @@ Not included (next steps):
 - TF transforms for object poses
 - IK/FK services
 - RViz path markers / ghost robot
-- Execution / FPC / JTC
+- FPC streaming adapter
 - MPC (`curobo_mpc_cpp` will be a separate package)
 
 ## Notes

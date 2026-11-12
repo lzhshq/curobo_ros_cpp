@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.3.0
+
+- Added `curobo_execution_cpp`.
+- Added `ExecutionAdapter`, `JtcAdapter`, and `TopicAdapter`.
+- Added `TrajectoryExecutor` with explicit `execute_latest`, `cancel`, and
+  `status` services.
+- Added per-robot execution configs for tickbot and Franka.
+- Verified plan-to-JTC execution and cancel against a fake JTC.
+
 ## v0.2.0
 
 - Added `AddObject`, `RemoveObject`, and `ClearObjects` services.

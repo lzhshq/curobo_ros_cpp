@@ -1,0 +1,11 @@
+curobo_executor:
+  ros__parameters:
+    adapter: jtc
+    action: /position_joint_trajectory_controller/follow_joint_trajectory
+    trajectory_topic: /curobo_planner/planned_trajectory
+    # Artifact joints are j1..j7; the ros2_control JTC uses joint1..7.
+    # Positions are passed in trajectory order, so the order must match.
+    joint_names: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+    time_scale: 1.0
+    goal_tolerance: 0.02
+    goal_time_tolerance: 2.0

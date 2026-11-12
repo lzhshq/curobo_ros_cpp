@@ -59,6 +59,15 @@ The ghost is visualization only. It does not move the robot.
 
 ![Franka model with ghost and tube path](images/rviz_franka_ghost.png)
 
+The AR5 variant uses the same displays; the controller publishes `joint1..7`
+while the artifact uses `j1..j7`, so the planner launch needs:
+
+```bash
+joint_name_map:=joint1:j1,joint2:j2,joint3:j3,joint4:j4,joint5:j5,joint6:j6,joint7:j7
+```
+
+![AR5 model with ghost and tube path](images/rviz_ar5_ghost.png)
+
 ## Why the model may look static
 
 - `PlanPose` only updates the tube/path.

@@ -69,6 +69,7 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
   this->declare_parameter<int>("scene_max_voxel_grids", 0);
   this->declare_parameter<int>("scene_max_voxels_per_grid", 0);
   this->declare_parameter<std::string>("joint_states_topic", "~/joint_states");
+  this->declare_parameter<std::string>("joint_name_map", "");
   this->declare_parameter<std::string>("base_frame", "");
   this->declare_parameter<bool>("publish_trajectory", true);
   this->declare_parameter<bool>("publish_path", true);
@@ -114,6 +115,22 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
   publish_path_enabled_ = this->get_parameter("publish_path").as_bool();
   path_marker_radius_ = this->get_parameter("path_marker_radius").as_double();
   publish_scene_markers_enabled_ = this->get_parameter("publish_scene_markers").as_bool();
+
+  const std::string name_map = this->get_parameter("joint_name_map").as_string();
+  std::size_t start = 0;
+  while (start < name_map.size()) {
+    const std::size_t comma = name_map.find(',', start);
+    const std::string entry = name_map.substr(
+        start, comma == std::string::npos ? std::string::npos : comma - start);
+    const std::size_t separator = entry.find(':');
+    if (separator != std::string::npos) {
+      joint_name_map_[entry.substr(0, separator)] = entry.substr(separator + 1);
+    }
+    if (comma == std::string::npos) {
+      break;
+    }
+    start = comma + 1;
+  }
 
   RCLCPP_INFO(this->get_logger(), "Loaded artifact: %s", artifact_dir.c_str());
   RCLCPP_INFO(this->get_logger(), "dof=%d joints=[%s] tools=[%s]", core_->num_dof(),
@@ -184,7 +201,10 @@ bool PlannerNode::reorder_start(const sensor_msgs::msg::JointState& message,
 
   std::unordered_map<std::string, std::size_t> index;
   for (std::size_t i = 0; i < message.name.size(); ++i) {
-    index.emplace(message.name[i], i);
+    const std::string& source = message.name[i];
+    const auto mapped = joint_name_map_.find(source);
+    const std::string& name = mapped == joint_name_map_.end() ? source : mapped->second;
+    index.emplace(name, i);
   }
 
   output.resize(desired.size());

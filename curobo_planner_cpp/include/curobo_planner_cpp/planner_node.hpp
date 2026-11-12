@@ -5,6 +5,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "curobo_core_cpp/planner_core.hpp"
@@ -76,6 +77,7 @@ class PlannerNode : public rclcpp::Node {
   bool has_state_ = false;
 
   std::string base_frame_;
+  std::unordered_map<std::string, std::string> joint_name_map_;
   bool publish_trajectory_enabled_ = true;
   bool publish_path_enabled_ = true;
   double path_marker_radius_ = 0.006;

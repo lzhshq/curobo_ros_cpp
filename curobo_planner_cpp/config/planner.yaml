@@ -28,6 +28,8 @@ curobo_planner:
     scene_max_voxels_per_grid: 0
 
     joint_states_topic: /joint_states
+    # Controller:artifact names, e.g. joint1:j1,joint2:j2,...
+    joint_name_map: ""
     publish_trajectory: true
     publish_path: true
     path_marker_radius: 0.006

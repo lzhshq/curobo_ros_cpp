@@ -12,7 +12,8 @@ def _launch_setup(context, *args, **kwargs):
     parameters = [config]
 
     overrides = {}
-    for name in ('artifact_dir', 'artifact_root', 'robot', 'tool_frame', 'base_frame'):
+    for name in ('artifact_dir', 'artifact_root', 'robot', 'tool_frame', 'base_frame',
+                 'joint_name_map'):
         value = LaunchConfiguration(name).perform(context)
         if value:
             overrides[name] = value
@@ -57,5 +58,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'base_frame', default_value='',
             description='Override base_frame from the YAML'),
+        DeclareLaunchArgument(
+            'joint_name_map', default_value='',
+            description='Comma-separated controller:artifact joint name mapping'),
         OpaqueFunction(function=_launch_setup),
     ])

@@ -88,6 +88,8 @@ Artifact joint names and controller names can differ:
 
 - AR5 artifact: `j1..j7`
 - AR5 JTC: `joint1..7`
+- Planner: set `joint_name_map:=joint1:j1,joint2:j2,...,joint7:j7`
+- Executor: set `joint_names: [joint1, ..., joint7]` in `ar5.yaml`
 - Franka artifact: `panda_joint1..7`
 
 Set `joint_names` in the executor YAML. The adapter maps by order; the order

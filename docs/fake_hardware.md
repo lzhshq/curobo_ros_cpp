@@ -80,9 +80,17 @@ ros2 launch tickbot_rokae_hardware robot_hw.launch.py \
   use_fake_hardware:=true update_rate:=500
 ```
 
-Then the planner with `robot:=ar5` and
-`base_frame:=right_arm_base`, and the executor with
-`config:=.../config/robots/ar5.yaml`.
+Then the planner with `robot:=ar5`, `base_frame:=right_arm_base`, and the
+controller-to-artifact joint map:
+
+```bash
+ros2 launch curobo_planner_cpp planner.launch.py \
+  robot:=ar5 base_frame:=right_arm_base \
+  joint_name_map:=joint1:j1,joint2:j2,joint3:j3,joint4:j4,joint5:j5,joint6:j6,joint7:j7
+```
+
+The executor uses `config:=.../config/robots/ar5.yaml`; its `joint_names`
+maps in the opposite direction (artifact -> controller).
 
 Important: the AR5 artifact uses `j1..j7`, while the JTC uses
 `joint1..7`. `curobo_execution_cpp/config/robots/ar5.yaml` maps names and

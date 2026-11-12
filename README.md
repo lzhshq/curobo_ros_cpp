@@ -407,6 +407,7 @@ Verified: 10 trajectory points, result `code=0 trajectory completed`, and
 | `path_marker_radius` | `0.006` | Radius of the 3D tube marker (m) |
 | `publish_scene_markers` | `true` | Publish `~/scene_markers` for scene objects |
 | `joint_states_topic` | `/joint_states` | Current state source for an empty `start_pose` |
+| `joint_name_map` | `""` | Controller→artifact names for the start state |
 
 Path resolution order: `artifact_dir` → `artifact_root/robot` → error.
 

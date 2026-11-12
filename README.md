@@ -68,23 +68,52 @@ for `robot/include` and `build/robot/libcurobo_robot_runtime.so`.
 
 ## Run
 
+Edit `curobo_planner_cpp/config/planner.yaml` once (set `artifact_dir`, or
+`artifact_root` + `robot`), then launch:
+
 ```bash
 source /opt/ros/humble/setup.bash
 source ~/curobo_ros_ws/install/setup.bash
-
-ros2 run curobo_planner_cpp planner_node --ros-args \
-  -p artifact_dir:=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts/tickbot \
-  -p base_frame:=right_arm_base
+ros2 launch curobo_planner_cpp planner.launch.py
 ```
 
-Or via launch:
+`planner.launch.py` loads the installed `config/planner.yaml` by default.
+
+To keep one config per robot, create e.g. `config/tickbot.yaml` and
+`config/franka.yaml`, then:
 
 ```bash
 ros2 launch curobo_planner_cpp planner.launch.py \
-  artifact_root:=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts \
-  robot:=tickbot \
-  base_frame:=right_arm_base
+  config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_planner_cpp/config/tickbot.yaml
 ```
+
+Command-line launch arguments override the YAML when non-empty:
+
+```bash
+ros2 launch curobo_planner_cpp planner.launch.py \
+  artifact_dir:=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts/franka \
+  base_frame:=panda_link0
+```
+
+For `ros2 run` without launch:
+
+```bash
+ros2 run curobo_planner_cpp planner_node --ros-args \
+  --params-file $HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_planner_cpp/config/planner.yaml
+```
+
+The YAML key must match the node name (`curobo_planner`):
+
+```yaml
+curobo_planner:
+  ros__parameters:
+    artifact_dir: /home/vitai/curobo-fast/cpp_runtime/robot/artifacts/tickbot
+    base_frame: right_arm_base
+```
+
+`artifact_dir` is a construction-time parameter. Changing it with
+`ros2 param set` does **not** reload the artifact; restart the node (or switch
+`config:=...`) to change robots.
 
 Startup logs the artifact, DOF, joint names, and tool frames. `node_is_available`
 becomes `true` after initialization.

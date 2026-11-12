@@ -1,8 +1,14 @@
 curobo_planner:
   ros__parameters:
-    # Absolute artifact directory. Leave empty and set artifact_root + robot
-    # when artifacts are deployed in a shared directory.
+    # Option 1: absolute artifact directory.
+    # Example:
+    #   artifact_dir: /home/vitai/curobo-fast/cpp_runtime/robot/artifacts/tickbot
     artifact_dir: ""
+
+    # Option 2: resolve artifact_root/<robot>; ignored when artifact_dir is set.
+    # Example:
+    #   artifact_root: /home/vitai/curobo-fast/cpp_runtime/robot/artifacts
+    #   robot: tickbot
     artifact_root: ""
     robot: ""
 

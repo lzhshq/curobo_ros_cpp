@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.0
+
+- Added `~/planned_path` (`nav_msgs/Path`) from FK tool poses.
+- Added `~/planned_markers` with start/goal spheres.
+- Added `rviz/planner.rviz` and `rviz.launch.py`.
+- Verified a 22-pose path with frame `right_arm_base`; final pose matches the
+  requested target.
+
 ## v0.3.0
 
 - Added `curobo_execution_cpp`.

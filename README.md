@@ -251,6 +251,38 @@ PlanPose (22 points) → execute_latest → JTC accepted → result code=0
 cancel while running → result code=-1 canceled
 ```
 
+## RViz (v0.4)
+
+After a successful `PlanPose`, the planner also publishes:
+
+| Topic | Type | Content |
+|---|---|---|
+| `~/planned_path` | `nav_msgs/Path` | end-effector path from FK |
+| `~/planned_markers` | `visualization_msgs/MarkerArray` | start (red) and goal (green) |
+
+Start RViz with the matching fixed frame:
+
+```bash
+ros2 launch curobo_planner_cpp rviz.launch.py base_frame:=right_arm_base
+```
+
+For Franka:
+
+```bash
+ros2 launch curobo_planner_cpp rviz.launch.py base_frame:=panda_link0
+```
+
+The default RViz config shows:
+
+- `Path` on `/curobo_planner/planned_path`
+- `MarkerArray` on `/curobo_planner/planned_markers`
+- `RobotModel` disabled by default; enable it if `/robot_description` is
+  published by your robot stack
+
+`base_frame` must match the artifact base frame; otherwise the path will not
+appear under the fixed frame. RViz shows the **tool** path, not the whole arm.
+It is visualization only; execution still goes through `curobo_execution_cpp`.
+
 ## Parameters
 
 | Parameter | Default | Meaning |
@@ -268,10 +300,11 @@ cancel while running → result code=-1 canceled
 | `scene_max_cylinders` | `8` | Cylinder capacity |
 | `joint_states_topic` | `~/joint_states` | Start-state source |
 | `publish_trajectory` | `true` | Publish `~/planned_trajectory` |
+| `publish_path` | `true` | Publish `~/planned_path` and markers |
 
 Path resolution order: `artifact_dir` → `artifact_root/robot` → error.
 
-## Scope (v0.3)
+## Scope (v0.4)
 
 Included:
 
@@ -282,6 +315,7 @@ Included:
 - Primitive scene: `CUBOID`, `SPHERE`, `CAPSULE`, `CYLINDER`
 - `AddObject` / `RemoveObject` / `ClearObjects` services
 - `curobo_execution_cpp`: JTC and topic adapters
+- RViz `Path` + start/goal markers
 
 Not included (next steps):
 
@@ -289,7 +323,7 @@ Not included (next steps):
 - `target_poses` / `target_joint_positions`
 - TF transforms for object poses
 - IK/FK services
-- RViz path markers / ghost robot
+- RViz whole-arm ghost preview
 - FPC streaming adapter
 - MPC (`curobo_mpc_cpp` will be a separate package)
 

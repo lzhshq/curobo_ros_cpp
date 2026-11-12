@@ -54,6 +54,12 @@ struct ObjectSpec {
   std::array<float, 3> dimensions{{0.0F, 0.0F, 0.0F}};
 };
 
+struct ToolPose {
+  std::array<float, 3> position{{0.0F, 0.0F, 0.0F}};
+  // wxyz
+  std::array<float, 4> quaternion{{1.0F, 0.0F, 0.0F, 0.0F}};
+};
+
 struct PlanResult {
   bool success = false;
   std::string message;
@@ -96,6 +102,11 @@ class PlannerCore {
   bool clear_objects(std::string& error);
   std::vector<std::string> object_names() const;
   int object_count() const;
+
+  // Forward kinematics for the selected tool frame. positions is row-major
+  // [num_steps, num_dof]. Returns an empty vector on invalid input.
+  std::vector<ToolPose> compute_tool_path(const std::vector<float>& positions,
+                                          int num_steps) const;
 
   const std::vector<std::string>& joint_names() const;
   const std::vector<std::string>& tool_frames() const;

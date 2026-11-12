@@ -29,3 +29,4 @@ curobo_planner:
 
     joint_states_topic: "~/joint_states"
     publish_trajectory: true
+    publish_path: true

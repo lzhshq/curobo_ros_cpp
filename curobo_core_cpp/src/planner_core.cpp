@@ -228,6 +228,10 @@ struct PlannerCore::Impl {
     if (d_rrt_iterations != nullptr) cudaFree(d_rrt_iterations);
     if (d_selected_seed != nullptr) cudaFree(d_selected_seed);
     if (d_planning_attempts != nullptr) cudaFree(d_planning_attempts);
+    if (d_fk_joints != nullptr) cudaFree(d_fk_joints);
+    if (d_fk_positions != nullptr) cudaFree(d_fk_positions);
+    if (d_fk_quaternions != nullptr) cudaFree(d_fk_quaternions);
+    if (d_fk_jacobians != nullptr) cudaFree(d_fk_jacobians);
   }
 
   PlannerConfig config;
@@ -285,6 +289,11 @@ struct PlannerCore::Impl {
   int32_t* d_rrt_iterations = nullptr;
   int32_t* d_selected_seed = nullptr;
   int32_t* d_planning_attempts = nullptr;
+
+  float* d_fk_joints = nullptr;
+  float* d_fk_positions = nullptr;
+  float* d_fk_quaternions = nullptr;
+  float* d_fk_jacobians = nullptr;
 };
 
 PlannerCore::PlannerCore(PlannerConfig config)
@@ -383,6 +392,16 @@ bool PlannerCore::initialize(std::string& error) {
     impl_->d_rrt_iterations = alloc_device<int32_t>(1);
     impl_->d_selected_seed = alloc_device<int32_t>(1);
     impl_->d_planning_attempts = alloc_device<int32_t>(1);
+
+    impl_->d_fk_joints = alloc_device<float>(
+        static_cast<std::size_t>(impl_->num_steps) * impl_->num_dof);
+    impl_->d_fk_positions = alloc_device<float>(
+        static_cast<std::size_t>(impl_->num_steps) * impl_->num_tool_frames * 3);
+    impl_->d_fk_quaternions = alloc_device<float>(
+        static_cast<std::size_t>(impl_->num_steps) * impl_->num_tool_frames * 4);
+    impl_->d_fk_jacobians = alloc_device<float>(
+        static_cast<std::size_t>(impl_->num_steps) * impl_->num_tool_frames * 6 *
+        impl_->num_dof);
 
     check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize after initialize");
     impl_->initialized = true;
@@ -637,6 +656,56 @@ std::vector<std::string> PlannerCore::object_names() const {
 
 int PlannerCore::object_count() const {
   return static_cast<int>(impl_->objects.size());
+}
+
+std::vector<ToolPose> PlannerCore::compute_tool_path(
+    const std::vector<float>& positions, int num_steps) const {
+  std::vector<ToolPose> result;
+  if (!impl_->initialized || num_steps <= 0 ||
+      num_steps > impl_->num_steps ||
+      positions.size() != static_cast<std::size_t>(num_steps) * impl_->num_dof) {
+    return result;
+  }
+
+  try {
+    copy_to_device(impl_->d_fk_joints, positions, "copy fk joints");
+    impl_->kinematics->forward(impl_->d_fk_joints, impl_->d_fk_positions,
+                               impl_->d_fk_quaternions, impl_->d_fk_jacobians, 1,
+                               num_steps);
+    check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize after fk");
+
+    const std::size_t pose_count =
+        static_cast<std::size_t>(num_steps) * impl_->num_tool_frames;
+    std::vector<float> tool_positions(pose_count * 3);
+    std::vector<float> tool_quaternions(pose_count * 4);
+    check_cuda(cudaMemcpy(tool_positions.data(), impl_->d_fk_positions,
+                          tool_positions.size() * sizeof(float),
+                          cudaMemcpyDeviceToHost),
+               "copy fk positions");
+    check_cuda(cudaMemcpy(tool_quaternions.data(), impl_->d_fk_quaternions,
+                          tool_quaternions.size() * sizeof(float),
+                          cudaMemcpyDeviceToHost),
+               "copy fk quaternions");
+
+    result.reserve(static_cast<std::size_t>(num_steps));
+    for (int step = 0; step < num_steps; ++step) {
+      const std::size_t index =
+          static_cast<std::size_t>(step) * impl_->num_tool_frames +
+          static_cast<std::size_t>(impl_->tool_index);
+      ToolPose pose;
+      for (int i = 0; i < 3; ++i) {
+        pose.position[static_cast<std::size_t>(i)] = tool_positions[index * 3 + i];
+      }
+      for (int i = 0; i < 4; ++i) {
+        pose.quaternion[static_cast<std::size_t>(i)] =
+            tool_quaternions[index * 4 + i];
+      }
+      result.push_back(pose);
+    }
+    return result;
+  } catch (const std::exception&) {
+    return {};
+  }
 }
 
 const std::vector<std::string>& PlannerCore::joint_names() const {

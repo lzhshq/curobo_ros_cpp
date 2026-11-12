@@ -12,9 +12,13 @@
 #include "curobo_planner_interfaces/srv/clear_objects.hpp"
 #include "curobo_planner_interfaces/srv/plan_pose.hpp"
 #include "curobo_planner_interfaces/srv/remove_object.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
+#include "visualization_msgs/msg/marker.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 
 namespace curobo_ros_cpp {
 
@@ -51,6 +55,7 @@ class PlannerNode : public rclcpp::Node {
                      std::vector<float>& output, std::string& error) const;
 
   void publish_trajectory(const curobo_ros_cpp::PlanResult& result);
+  void publish_path(const curobo_ros_cpp::PlanResult& result);
 
   std::unique_ptr<PlannerCore> core_;
 
@@ -60,6 +65,8 @@ class PlannerNode : public rclcpp::Node {
   rclcpp::Service<RemoveObject>::SharedPtr remove_object_srv_;
   rclcpp::Service<ClearObjects>::SharedPtr clear_objects_srv_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr trajectory_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
 
   std::mutex state_mutex_;
   std::mutex plan_mutex_;
@@ -68,6 +75,7 @@ class PlannerNode : public rclcpp::Node {
 
   std::string base_frame_;
   bool publish_trajectory_enabled_ = true;
+  bool publish_path_enabled_ = true;
 };
 
 }  // namespace curobo_ros_cpp

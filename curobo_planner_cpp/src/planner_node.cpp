@@ -42,6 +42,7 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
   this->declare_parameter<std::string>("joint_states_topic", "~/joint_states");
   this->declare_parameter<std::string>("base_frame", "");
   this->declare_parameter<bool>("publish_trajectory", true);
+  this->declare_parameter<bool>("publish_path", true);
   this->declare_parameter<bool>("node_is_available", false);
 
   std::string artifact_dir = this->get_parameter("artifact_dir").as_string();
@@ -79,6 +80,7 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
 
   base_frame_ = this->get_parameter("base_frame").as_string();
   publish_trajectory_enabled_ = this->get_parameter("publish_trajectory").as_bool();
+  publish_path_enabled_ = this->get_parameter("publish_path").as_bool();
 
   RCLCPP_INFO(this->get_logger(), "Loaded artifact: %s", artifact_dir.c_str());
   RCLCPP_INFO(this->get_logger(), "dof=%d joints=[%s] tools=[%s]", core_->num_dof(),
@@ -109,6 +111,9 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
 
   trajectory_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(
       "~/planned_trajectory", 10);
+  path_pub_ = this->create_publisher<nav_msgs::msg::Path>("~/planned_path", 10);
+  marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+      "~/planned_markers", 10);
 
   this->set_parameter(rclcpp::Parameter("node_is_available", true));
   RCLCPP_INFO(this->get_logger(),
@@ -261,6 +266,7 @@ void PlannerNode::plan_callback(
               result.used_rrt ? "true" : "false", result.planning_ms);
 
   publish_trajectory(result);
+  publish_path(result);
 }
 
 void PlannerNode::add_object_callback(
@@ -363,6 +369,66 @@ void PlannerNode::clear_objects_callback(
   } else {
     RCLCPP_WARN(this->get_logger(), "clear_objects failed: %s", error.c_str());
   }
+}
+
+void PlannerNode::publish_path(const PlanResult& result) {
+  if (!publish_path_enabled_ || path_pub_ == nullptr) {
+    return;
+  }
+  if (base_frame_.empty()) {
+    RCLCPP_WARN(this->get_logger(),
+                "planned_path has an empty frame_id; set base_frame for RViz");
+  }
+
+  const auto tool_path = core_->compute_tool_path(result.position, result.num_steps);
+  if (tool_path.empty()) {
+    RCLCPP_WARN(this->get_logger(), "FK failed; planned_path not published");
+    return;
+  }
+
+  nav_msgs::msg::Path path;
+  path.header.stamp = this->now();
+  path.header.frame_id = base_frame_;
+  path.poses.reserve(tool_path.size());
+  for (const auto& pose : tool_path) {
+    geometry_msgs::msg::PoseStamped pose_stamped;
+    pose_stamped.header = path.header;
+    pose_stamped.pose.position.x = pose.position[0];
+    pose_stamped.pose.position.y = pose.position[1];
+    pose_stamped.pose.position.z = pose.position[2];
+    pose_stamped.pose.orientation.x = pose.quaternion[1];
+    pose_stamped.pose.orientation.y = pose.quaternion[2];
+    pose_stamped.pose.orientation.z = pose.quaternion[3];
+    pose_stamped.pose.orientation.w = pose.quaternion[0];
+    path.poses.push_back(std::move(pose_stamped));
+  }
+  path_pub_->publish(path);
+
+  visualization_msgs::msg::MarkerArray markers;
+  auto make_sphere = [&](int id, const curobo_ros_cpp::ToolPose& pose, float r, float g,
+                         float b) {
+    visualization_msgs::msg::Marker marker;
+    marker.header = path.header;
+    marker.ns = "planned_path";
+    marker.id = id;
+    marker.type = visualization_msgs::msg::Marker::SPHERE;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.scale.x = 0.03;
+    marker.scale.y = 0.03;
+    marker.scale.z = 0.03;
+    marker.color.r = r;
+    marker.color.g = g;
+    marker.color.b = b;
+    marker.color.a = 1.0F;
+    marker.pose.position.x = pose.position[0];
+    marker.pose.position.y = pose.position[1];
+    marker.pose.position.z = pose.position[2];
+    marker.pose.orientation.w = 1.0;
+    markers.markers.push_back(std::move(marker));
+  };
+  make_sphere(0, tool_path.front(), 1.0F, 0.0F, 0.0F);
+  make_sphere(1, tool_path.back(), 0.0F, 1.0F, 0.0F);
+  marker_pub_->publish(markers);
 }
 
 void PlannerNode::publish_trajectory(const PlanResult& result) {

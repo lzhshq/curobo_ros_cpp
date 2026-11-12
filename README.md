@@ -22,6 +22,16 @@ lives in the separate `curobo_execution_cpp` package. MPC and robot-specific
 models are not part of this repository. A robot is selected by an exported
 artifact directory.
 
+Local layout: the source repository is at `~/curobo_ros_cpp`; the colcon
+workspace `~/curobo_ros_ws/src/curobo_ros_cpp` is a symlink to it.
+
+## Documentation
+
+- [Architecture](docs/architecture.md): packages, data flow, threading, artifacts
+- [RViz](docs/rviz.md): tube path, robot model, ghost, launch arguments
+- [Fake hardware](docs/fake_hardware.md): fake Franka/tickbot JTC and terminals
+- [Troubleshooting](docs/troubleshooting.md): common errors and checks
+
 ## Packages
 
 | Package | Role |

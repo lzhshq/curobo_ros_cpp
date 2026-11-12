@@ -81,6 +81,14 @@ ros2 launch curobo_planner_cpp planner.launch.py
 ```
 
 `planner.launch.py` loads the installed `config/planner.yaml` by default.
+The default YAML keeps `artifact_dir` empty; a machine-local artifact root can
+be supplied through `CUROBO_ARTIFACT_ROOT`:
+
+```bash
+export CUROBO_ARTIFACT_ROOT=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts
+ros2 launch curobo_planner_cpp planner.launch.py \
+  robot:=franka base_frame:=panda_link0
+```
 
 To keep one config per robot, create e.g. `config/tickbot.yaml` and
 `config/franka.yaml`, then:
@@ -290,25 +298,31 @@ It is visualization only; execution still goes through `curobo_execution_cpp`.
 returns a standard result. It is **not** a physics simulator; MuJoCo is not
 required for the ROS 2 JTC/RViz validation.
 
-Start the fake Franka JTC:
+The fake Franka chain uses four terminals:
+
+| Terminal | Command | Role |
+|---|---|---|
+| 1 | `fake_franka.launch.py` | fake plant: JTC action + `/joint_states` |
+| 2 | `planner.launch.py robot:=franka` | cuRobo planning; `PlanPose`, `/planned_path` |
+| 3 | `execution.launch.py config:=franka.yaml` | sends the cached plan to JTC |
+| 4 | `call_plan.py` + `execute_latest` | user trigger; optional RViz |
 
 ```bash
 source /opt/ros/humble/setup.bash
 source ~/curobo_ros_ws/install/setup.bash
 export ROS_DOMAIN_ID=79
+export CUROBO_ARTIFACT_ROOT=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts
+
+# terminal 1
 ros2 launch curobo_execution_cpp fake_franka.launch.py
-```
 
-Start the planner with the Franka artifact:
+# terminal 2
+ros2 launch curobo_planner_cpp planner.launch.py \
+  robot:=franka base_frame:=panda_link0
 
-```bash
-ros2 run curobo_planner_cpp planner_node --ros-args   -p artifact_dir:=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts/franka   -p base_frame:=panda_link0
-```
-
-Start the executor with the Franka config:
-
-```bash
-ros2 launch curobo_execution_cpp execution.launch.py   config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_execution_cpp/config/robots/franka.yaml
+# terminal 3
+ros2 launch curobo_execution_cpp execution.launch.py \
+  config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_execution_cpp/config/robots/franka.yaml
 ```
 
 Plan and execute:

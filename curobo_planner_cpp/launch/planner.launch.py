@@ -36,6 +36,7 @@ def generate_launch_description():
         'config',
         'planner.yaml',
     )
+    default_artifact_root = os.environ.get('CUROBO_ARTIFACT_ROOT', '')
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -45,8 +46,8 @@ def generate_launch_description():
             'artifact_dir', default_value='',
             description='Override artifact_dir from the YAML'),
         DeclareLaunchArgument(
-            'artifact_root', default_value='',
-            description='Override artifact_root from the YAML'),
+            'artifact_root', default_value=default_artifact_root,
+            description='Artifact root; defaults to $CUROBO_ARTIFACT_ROOT'),
         DeclareLaunchArgument(
             'robot', default_value='',
             description='Override robot from the YAML'),

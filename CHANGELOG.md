@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.1
+
+- `planner.launch.py` reads `CUROBO_ARTIFACT_ROOT` as the default artifact root.
+- README documents the four-terminal fake Franka chain.
+
 ## v0.5.0
 
 - Added `tools/fake_jtc.py`: a kinematic FollowJointTrajectory server that

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 lzhshq
 // SPDX-License-Identifier: Apache-2.0
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cuda_runtime_api.h>
@@ -9,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -37,80 +39,55 @@ double to_seconds(const builtin_interfaces::msg::Duration& duration) {
   return static_cast<double>(duration.sec) + 1e-9 * static_cast<double>(duration.nanosec);
 }
 
-std::vector<std::string> split_names(const std::string& text) {
-  std::vector<std::string> names;
-  std::size_t start = 0;
-  while (start < text.size()) {
-    const std::size_t comma = text.find(',', start);
-    const std::string entry = text.substr(
-        start, comma == std::string::npos ? std::string::npos : comma - start);
-    if (!entry.empty()) names.push_back(entry);
-    if (comma == std::string::npos) break;
-    start = comma + 1;
-  }
-  return names;
-}
-
 }  // namespace
 
 /**
- * Experimental closed-loop MPC node.
+ * Producer/consumer MPC node.
  *
- * step() runs at mpc_rate; one knot interval of the feasible horizon is streamed
- * to a ForwardCommandController at command_rate. At the handoff boundary the
- * horizon is accepted and the next step uses the measured joint state. This is
- * still a scaffold: it has no real hardware admission/ACK or Cartesian goal TF.
+ * Producer thread: step() at control_rate, validates the horizon, and stores the
+ * latest proposal. It never blocks on command publishing.
+ *
+ * Consumer timers:
+ *  - accept timer (command_interval): accept the latest validated proposal and
+ *    make it the active command horizon;
+ *  - stream timer (command_rate): publish samples from the active horizon to FPC.
+ *
+ * This mirrors curobo_ros: solve continuously, send at a fixed command cadence.
+ * It is still a scaffold: admission is only validation + freshness, not a real
+ * controller ACK/brake check.
  */
 class MpcNode : public rclcpp::Node {
  public:
   MpcNode() : rclcpp::Node("curobo_mpc") {
     artifact_dir_ = this->declare_parameter<std::string>("artifact_dir", "");
-    if (artifact_dir_.empty()) {
-      throw std::runtime_error("artifact_dir is required");
-    }
+    if (artifact_dir_.empty()) throw std::runtime_error("artifact_dir is required");
     const std::string joint_states_topic =
         this->declare_parameter<std::string>("joint_states_topic", "/joint_states");
     const std::string goal_topic =
         this->declare_parameter<std::string>("goal_topic", "/curobo_mpc/goal");
     command_topic_ = this->declare_parameter<std::string>(
         "command_topic", "/position_forward_controller/commands");
-    mpc_rate_ = this->declare_parameter<double>("mpc_rate", 30.0);
+    control_rate_ = this->declare_parameter<double>("control_rate", 30.0);
     command_rate_ = this->declare_parameter<double>("command_rate", 100.0);
-    const double trajectory_dt = this->declare_parameter<double>(
-        "trajectory_dt", 0.03);
-    max_handoffs_ = this->declare_parameter<int>("max_handoffs", 200);
-    const auto controller_joints =
-        this->declare_parameter<std::vector<std::string>>(
-            "controller_joints", std::vector<std::string>{});
+    command_interval_ = this->declare_parameter<double>("command_interval", 0.24);
+    const double trajectory_dt =
+        this->declare_parameter<double>("trajectory_dt", 0.03);
+    const auto controller_joints = this->declare_parameter<std::vector<std::string>>(
+        "controller_joints", std::vector<std::string>{});
     const std::string name_map =
         this->declare_parameter<std::string>("joint_name_map", "");
-
-    std::size_t start = 0;
-    while (start < name_map.size()) {
-      const std::size_t comma = name_map.find(',', start);
-      const std::string entry = name_map.substr(
-          start, comma == std::string::npos ? std::string::npos : comma - start);
-      const std::size_t separator = entry.find(':');
-      if (separator != std::string::npos) {
-        name_map_[entry.substr(0, separator)] = entry.substr(separator + 1);
-      }
-      if (comma == std::string::npos) break;
-      start = comma + 1;
-    }
+    parse_name_map(name_map);
 
     kinematics_ = std::make_unique<curobo::robot::Kinematics>(artifact_dir_);
-
     curobo::robot::SceneConfig scene_config;
     scene_config.max_cuboids = 8;
     scene_config.max_capsules = 8;
     scene_config.max_cylinders = 8;
     scene_ = std::make_unique<curobo::robot::Scene>(scene_config);
-
     curobo::robot::MotionPlanningConfig planner_config;
     planner_config.use_cuda_graph = true;
     planner_ = std::make_unique<curobo::robot::MotionPlanner>(
         artifact_dir_, planner_config, scene_.get());
-
     curobo::robot::MpcConfig mpc_config;
     mpc_config.trajectory_dt = static_cast<float>(trajectory_dt);
     mpc_ = std::make_unique<curobo::robot::MpcController>(*planner_, mpc_config);
@@ -118,17 +95,10 @@ class MpcNode : public rclcpp::Node {
     const auto robot = planner_->robot_info();
     dof_ = robot.num_dof;
     tool_count_ = robot.num_tool_frames;
-    if (dof_ <= 0) {
-      throw std::runtime_error("artifact has no active joints");
-    }
+    if (dof_ <= 0) throw std::runtime_error("artifact has no active joints");
     std::vector<std::string> artifact_names;
-    artifact_names.reserve(static_cast<std::size_t>(dof_));
-    for (int i = 0; i < dof_; ++i) {
-      artifact_names.push_back(kinematics_->joint_name(i));
-    }
-    controller_names_ = controller_joints.empty()
-                            ? artifact_names
-                            : controller_joints;
+    for (int i = 0; i < dof_; ++i) artifact_names.push_back(kinematics_->joint_name(i));
+    controller_names_ = controller_joints.empty() ? artifact_names : controller_joints;
     if (controller_names_.size() != static_cast<std::size_t>(dof_)) {
       throw std::runtime_error("controller_joints size must match artifact DOF");
     }
@@ -146,26 +116,23 @@ class MpcNode : public rclcpp::Node {
     const auto shape = mpc_->info();
     steps_ = shape.trajectory_steps;
     knots_ = shape.num_knots;
-    if (steps_ <= 0 || knots_ <= 0) {
-      throw std::runtime_error("MPC artifact has no trajectory layout");
-    }
-    // Four knot intervals per handoff, matching the MPC fixture's advance.
-    handoff_index_ = std::max(1, 4 * (steps_ - 1) / (knots_ + 4));
-    handoff_index_ = std::min(handoff_index_, steps_ - 1);
-    state_v_.assign(static_cast<std::size_t>(dof_), 0.0F);
-    next_v_.assign(static_cast<std::size_t>(dof_), 0.0F);
-    next_q_.assign(static_cast<std::size_t>(dof_), 0.0F);
+    if (steps_ <= 0 || knots_ <= 0) throw std::runtime_error("MPC layout is empty");
+    const int samples_per_knot = std::max(1, (steps_ - 1) / (knots_ + 4));
+    knot_dt_ = trajectory_dt * samples_per_knot;
+    knots_per_interval_ = std::max(1, static_cast<int>(
+        std::llround(command_interval_ / std::max(knot_dt_, 1e-6))));
+    knots_per_interval_ = std::min(knots_per_interval_, knots_);
 
-    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_q_), dof_ * sizeof(float)), "malloc q");
-    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_v_), dof_ * sizeof(float)), "malloc v");
-    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_a_), dof_ * sizeof(float)), "malloc a");
-    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_j_), dof_ * sizeof(float)), "malloc jerk");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_q_), dof_ * sizeof(float)), "q");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_v_), dof_ * sizeof(float)), "v");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_a_), dof_ * sizeof(float)), "a");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_j_), dof_ * sizeof(float)), "j");
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_goal_pos_), tool_count_ * 3 * sizeof(float)),
-               "malloc goal pos");
+               "goal pos");
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_goal_quat_), tool_count_ * 4 * sizeof(float)),
-               "malloc goal quat");
+               "goal quat");
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_seed_), knots_ * dof_ * sizeof(float)),
-               "malloc seed");
+               "seed");
 
     command_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
         command_topic_, 10);
@@ -179,23 +146,25 @@ class MpcNode : public rclcpp::Node {
     cancel_srv_ = this->create_service<std_srvs::srv::Trigger>(
         "~/cancel", std::bind(&MpcNode::cancel_callback, this, std::placeholders::_1,
                               std::placeholders::_2));
-
-    solve_timer_ = this->create_wall_timer(
-        std::chrono::duration<double>(1.0 / std::max(mpc_rate_, 1.0)),
-        std::bind(&MpcNode::solve_callback, this));
+    accept_timer_ = this->create_wall_timer(
+        std::chrono::duration<double>(std::max(command_interval_, 1e-3)),
+        std::bind(&MpcNode::accept_callback, this));
     stream_timer_ = this->create_wall_timer(
         std::chrono::duration<double>(1.0 / std::max(command_rate_, 1.0)),
         std::bind(&MpcNode::stream_callback, this));
 
     set_status("idle");
+    producer_ = std::thread(&MpcNode::producer_loop, this);
     RCLCPP_INFO(this->get_logger(),
-                "MPC skeleton ready: artifact=%s dof=%d knots=%d steps=%d mpc=%.1f Hz "
-                "command=%.1f Hz topic=%s",
-                artifact_dir_.c_str(), dof_, knots_, steps_, mpc_rate_, command_rate_,
-                command_topic_.c_str());
+                "MPC producer/consumer: dof=%d knots=%d steps=%d control=%.1f Hz "
+                "command=%.1f Hz interval=%.3f s knots_per_interval=%d",
+                dof_, knots_, steps_, control_rate_, command_rate_, command_interval_,
+                knots_per_interval_);
   }
 
   ~MpcNode() override {
+    running_ = false;
+    if (producer_.joinable()) producer_.join();
     cudaFree(d_q_);
     cudaFree(d_v_);
     cudaFree(d_a_);
@@ -206,7 +175,21 @@ class MpcNode : public rclcpp::Node {
   }
 
  private:
+  void parse_name_map(const std::string& text) {
+    std::size_t start = 0;
+    while (start < text.size()) {
+      const std::size_t comma = text.find(',', start);
+      const std::string entry = text.substr(
+          start, comma == std::string::npos ? std::string::npos : comma - start);
+      const std::size_t sep = entry.find(':');
+      if (sep != std::string::npos) name_map_[entry.substr(0, sep)] = entry.substr(sep + 1);
+      if (comma == std::string::npos) break;
+      start = comma + 1;
+    }
+  }
+
   void set_status(const std::string& status) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
     if (status_ == status) return;
     status_ = status;
     std_msgs::msg::String message;
@@ -214,234 +197,203 @@ class MpcNode : public rclcpp::Node {
     status_pub_->publish(message);
   }
 
-  bool current_state(std::vector<float>& q) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!has_state_) return false;
-    q.resize(static_cast<std::size_t>(dof_));
-    for (int i = 0; i < dof_; ++i) {
-      q[i] = state_.count(artifact_joint_name(i)) ? state_.at(artifact_joint_name(i)) : 0.0F;
-    }
-    return true;
-  }
-
-  std::string artifact_joint_name(int index) const {
-    return kinematics_->joint_name(index);
-  }
-
   void joint_callback(const sensor_msgs::msg::JointState::SharedPtr message) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(data_mutex_);
     state_.clear();
     for (std::size_t i = 0; i < message->name.size() && i < message->position.size(); ++i) {
       const auto mapped = name_map_.find(message->name[i]);
-      const std::string& name = mapped == name_map_.end() ? message->name[i] : mapped->second;
-      state_[name] = static_cast<float>(message->position[i]);
+      state_[mapped == name_map_.end() ? message->name[i] : mapped->second] =
+          static_cast<float>(message->position[i]);
     }
     has_state_ = true;
   }
 
+  bool snapshot_state(std::vector<float>& q) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    if (!has_state_) return false;
+    q.resize(static_cast<std::size_t>(dof_));
+    for (int i = 0; i < dof_; ++i) {
+      const std::string name = kinematics_->joint_name(i);
+      const auto it = state_.find(name);
+      if (it == state_.end()) return false;
+      q[i] = it->second;
+    }
+    return true;
+  }
+
   void goal_callback(const geometry_msgs::msg::PoseStamped::SharedPtr message) {
     std::vector<float> q;
-    if (!current_state(q)) {
+    if (!snapshot_state(q)) {
       set_status("waiting for /joint_states");
       return;
     }
-    const auto& orientation = message->pose.orientation;
-    const double norm = std::sqrt(orientation.x * orientation.x +
-                                  orientation.y * orientation.y +
-                                  orientation.z * orientation.z +
-                                  orientation.w * orientation.w);
+    const auto& o = message->pose.orientation;
+    const double norm = std::sqrt(o.x * o.x + o.y * o.y + o.z * o.z + o.w * o.w);
     if (!std::isfinite(norm) || norm < 1e-9) {
       set_status("invalid goal quaternion");
       return;
     }
-
     std::vector<float> positions(static_cast<std::size_t>(tool_count_) * 3);
-    std::vector<float> quaternions(static_cast<std::size_t>(tool_count_) * 4);
+    std::vector<float> quats(static_cast<std::size_t>(tool_count_) * 4);
     for (int tool = 0; tool < tool_count_; ++tool) {
-      positions[static_cast<std::size_t>(tool) * 3 + 0] =
-          static_cast<float>(message->pose.position.x);
-      positions[static_cast<std::size_t>(tool) * 3 + 1] =
-          static_cast<float>(message->pose.position.y);
-      positions[static_cast<std::size_t>(tool) * 3 + 2] =
-          static_cast<float>(message->pose.position.z);
-      quaternions[static_cast<std::size_t>(tool) * 4 + 0] =
-          static_cast<float>(orientation.w / norm);
-      quaternions[static_cast<std::size_t>(tool) * 4 + 1] =
-          static_cast<float>(orientation.x / norm);
-      quaternions[static_cast<std::size_t>(tool) * 4 + 2] =
-          static_cast<float>(orientation.y / norm);
-      quaternions[static_cast<std::size_t>(tool) * 4 + 3] =
-          static_cast<float>(orientation.z / norm);
+      positions[static_cast<std::size_t>(tool) * 3 + 0] = message->pose.position.x;
+      positions[static_cast<std::size_t>(tool) * 3 + 1] = message->pose.position.y;
+      positions[static_cast<std::size_t>(tool) * 3 + 2] = message->pose.position.z;
+      quats[static_cast<std::size_t>(tool) * 4 + 0] = o.w / norm;
+      quats[static_cast<std::size_t>(tool) * 4 + 1] = o.x / norm;
+      quats[static_cast<std::size_t>(tool) * 4 + 2] = o.y / norm;
+      quats[static_cast<std::size_t>(tool) * 4 + 3] = o.z / norm;
     }
-
     std::vector<float> seed(static_cast<std::size_t>(knots_) * dof_);
-    for (int knot = 0; knot < knots_; ++knot) {
-      std::copy(q.begin(), q.end(), seed.begin() + static_cast<std::size_t>(knot) * dof_);
+    for (int k = 0; k < knots_; ++k) {
+      std::copy(q.begin(), q.end(), seed.begin() + static_cast<std::size_t>(k) * dof_);
     }
-    check_cuda(cudaMemcpy(d_goal_pos_, positions.data(),
-                          positions.size() * sizeof(float), cudaMemcpyHostToDevice),
-               "copy goal pos");
-    check_cuda(cudaMemcpy(d_goal_quat_, quaternions.data(),
-                          quaternions.size() * sizeof(float), cudaMemcpyHostToDevice),
-               "copy goal quat");
-    check_cuda(cudaMemcpy(d_seed_, seed.data(), seed.size() * sizeof(float),
-                          cudaMemcpyHostToDevice),
-               "copy seed");
 
+    std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
+    check_cuda(cudaMemcpy(d_goal_pos_, positions.data(), positions.size() * sizeof(float),
+                          cudaMemcpyHostToDevice), "goal pos");
+    check_cuda(cudaMemcpy(d_goal_quat_, quats.data(), quats.size() * sizeof(float),
+                          cudaMemcpyHostToDevice), "goal quat");
+    check_cuda(cudaMemcpy(d_seed_, seed.data(), seed.size() * sizeof(float),
+                          cudaMemcpyHostToDevice), "seed");
     curobo::robot::MpcCartesianConfig objective;
     objective.constrain_path = true;
     mpc_->reset_cartesian(d_goal_pos_, d_goal_quat_, d_seed_, objective);
-    pending_goal_ = true;
-    solved_ = false;
-    streaming_ = false;
+
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    active_goal_ = true;
+    proposal_fresh_ = false;
+    has_active_ = false;
     executed_knots_ = 0;
     handoffs_ = 0;
-    state_v_.assign(static_cast<std::size_t>(dof_), 0.0F);
     set_status("goal received");
   }
 
-  void solve_callback() {
-    if (!pending_goal_ || solved_ || streaming_) return;
-    std::vector<float> q;
-    if (!current_state(q)) return;
-
-    if (state_v_.size() != static_cast<std::size_t>(dof_)) {
-      state_v_.assign(static_cast<std::size_t>(dof_), 0.0F);
-    }
-    check_cuda(cudaMemcpy(d_q_, q.data(), q.size() * sizeof(float), cudaMemcpyHostToDevice),
-               "copy q");
-    check_cuda(cudaMemcpy(d_v_, state_v_.data(), state_v_.size() * sizeof(float),
-                          cudaMemcpyHostToDevice), "copy v");
-    check_cuda(cudaMemset(d_a_, 0, d_a_ ? dof_ * sizeof(float) : 0), "clear a");
-    check_cuda(cudaMemset(d_j_, 0, d_j_ ? dof_ * sizeof(float) : 0), "clear jerk");
-
-    const auto begin = std::chrono::steady_clock::now();
-    const auto result = mpc_->step(d_q_, d_v_, d_a_, d_j_, executed_knots_);
-    const double solve_ms = std::chrono::duration<double, std::milli>(
-                                std::chrono::steady_clock::now() - begin)
-                                .count();
-    RCLCPP_DEBUG(this->get_logger(),
-                 "MPC step feasible=%s solve_ms=%.2f knots=%d",
-                 result.feasible ? "true" : "false", solve_ms, executed_knots_);
-    if (!result.feasible) {
-      // The shift is consumed even on failure; retry at the same handoff.
-      executed_knots_ = 0;
-      set_status("infeasible");
-      return;
-    }
-    if (!mpc_->validate_trajectory(result.position, result.velocity, result.acceleration,
-                                   result.jerk, result.trajectory_dt)) {
-      executed_knots_ = 0;
-      set_status("validation failed");
-      return;
-    }
-
-    horizon_.resize(static_cast<std::size_t>(steps_) * dof_);
-    check_cuda(cudaMemcpy(horizon_.data(), result.position,
-                          horizon_.size() * sizeof(float), cudaMemcpyDeviceToHost),
-               "copy MPC horizon");
-    check_cuda(cudaMemcpy(next_v_.data(), result.velocity + handoff_index_ * dof_,
-                          next_v_.size() * sizeof(float), cudaMemcpyDeviceToHost),
-               "copy handoff velocity");
-    const std::size_t offset = static_cast<std::size_t>(handoff_index_) * dof_;
-    std::copy(horizon_.begin() + static_cast<std::ptrdiff_t>(offset),
-              horizon_.begin() + static_cast<std::ptrdiff_t>(offset + dof_),
-              next_q_.begin());
-    horizon_dt_ = result.trajectory_dt;
-    float max_delta = 0.0F;
-    int max_joint = 0;
-    float max_value = 0.0F;
-    for (int i = 0; i < steps_; ++i) {
-      for (int j = 0; j < dof_; ++j) {
-        const float delta = std::abs(horizon_[static_cast<std::size_t>(i) * dof_ + j] -
-                                     horizon_[static_cast<std::size_t>(j)]);
-        if (delta > max_delta) {
-          max_delta = delta;
-          max_joint = j;
-          max_value = horizon_[static_cast<std::size_t>(i) * dof_ + j];
+  void producer_loop() {
+    const auto period = std::chrono::duration<double>(1.0 / std::max(control_rate_, 1.0));
+    auto next = std::chrono::steady_clock::now();
+    while (running_) {
+      next += std::chrono::duration_cast<std::chrono::steady_clock::duration>(period);
+      std::vector<float> q, goal_pos, goal_quat, seed;
+      int executed = 0;
+      bool active = false;
+      {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        active = active_goal_;
+        executed = executed_knots_;
+        if (active && has_state_) {
+          q.resize(static_cast<std::size_t>(dof_));
+          for (int i = 0; i < dof_; ++i) {
+            const auto it = state_.find(kinematics_->joint_name(i));
+            if (it == state_.end()) { active = false; break; }
+            q[i] = it->second;
+          }
+        } else {
+          active = false;
         }
       }
+      if (active) {
+        try {
+          std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
+          std::vector<float> zero(static_cast<std::size_t>(dof_), 0.0F);
+          check_cuda(cudaMemcpy(d_q_, q.data(), q.size() * sizeof(float),
+                                cudaMemcpyHostToDevice), "q");
+          check_cuda(cudaMemset(d_v_, 0, zero.size() * sizeof(float)), "v");
+          check_cuda(cudaMemset(d_a_, 0, zero.size() * sizeof(float)), "a");
+          check_cuda(cudaMemset(d_j_, 0, zero.size() * sizeof(float)), "j");
+          const auto result = mpc_->step(d_q_, d_v_, d_a_, d_j_, executed);
+          if (result.feasible &&
+              mpc_->validate_trajectory(result.position, result.velocity,
+                                        result.acceleration, result.jerk,
+                                        result.trajectory_dt)) {
+            std::vector<float> horizon(static_cast<std::size_t>(steps_) * dof_);
+            check_cuda(cudaMemcpy(horizon.data(), result.position,
+                                  horizon.size() * sizeof(float), cudaMemcpyDeviceToHost),
+                       "horizon");
+            std::lock_guard<std::mutex> lock(data_mutex_);
+            proposal_ = std::move(horizon);
+            proposal_dt_ = result.trajectory_dt;
+            proposal_fresh_ = true;
+          }
+        } catch (const std::exception& exception) {
+          set_status(std::string("producer error: ") + exception.what());
+        }
+      }
+      std::this_thread::sleep_until(next);
     }
-    RCLCPP_DEBUG(this->get_logger(),
-                 "horizon max_delta=%.5f joint=%d value=%.5f", max_delta, max_joint, max_value);
-    stream_duration_ = horizon_dt_ * static_cast<double>(handoff_index_);
-    stream_start_ = std::chrono::steady_clock::now();
-    streaming_ = true;
-    solved_ = true;
-    set_status("streaming");
-    publish_sample(0, 0.0);
-    RCLCPP_DEBUG(this->get_logger(),
-                 "MPC horizon accepted: dt=%.4f handoff_samples=%d handoff_s=%.3f",
-                 horizon_dt_, handoff_index_, stream_duration_);
+  }
+
+  void accept_callback() {
+    std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
+    bool accepted = false;
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      if (active_goal_ && proposal_fresh_ && !proposal_.empty()) {
+        mpc_->accept();
+        active_ = proposal_;
+        active_dt_ = proposal_dt_;
+        active_start_ = std::chrono::steady_clock::now();
+        has_active_ = true;
+        proposal_fresh_ = false;
+        executed_knots_ = std::min(knots_, executed_knots_ + knots_per_interval_);
+        ++handoffs_;
+        accepted = true;
+      }
+    }
+    set_status(accepted ? "tracking" : "holding");
   }
 
   void stream_callback() {
-    if (!streaming_) return;
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    if (!has_active_ || active_.empty()) return;
     const double elapsed = std::chrono::duration<double>(
-                               std::chrono::steady_clock::now() - stream_start_)
+                               std::chrono::steady_clock::now() - active_start_)
                                .count();
-    if (elapsed >= stream_duration_) {
-      publish_sample(static_cast<std::size_t>(handoff_index_), 0.0);
-      streaming_ = false;
-      mpc_->accept();
-      executed_knots_ = 4;
-      state_v_ = next_v_;
-      ++handoffs_;
-      if (handoffs_ >= max_handoffs_) {
-        pending_goal_ = false;
-        set_status("completed");
-        RCLCPP_INFO(this->get_logger(), "MPC reached max_handoffs=%d", max_handoffs_);
-      } else {
-        solved_ = false;
-        set_status("tracking");
-      }
-      return;
-    }
+    const double duration = active_dt_ * static_cast<double>(steps_ - 1);
     const std::size_t index = std::min(
-        static_cast<std::size_t>(elapsed / std::max(horizon_dt_, 1e-6F)),
-        static_cast<std::size_t>(handoff_index_));
-    const double base = static_cast<double>(index) * horizon_dt_;
-    const double ratio = horizon_dt_ > 0.0 ? (elapsed - base) / horizon_dt_ : 0.0;
-    publish_sample(index, std::clamp(ratio, 0.0, 1.0));
-  }
-
-  void publish_sample(std::size_t index, double ratio) {
-    if (horizon_.empty()) return;
-    std_msgs::msg::Float64MultiArray message;
-    message.data.resize(controller_names_.size());
+        static_cast<std::size_t>(elapsed / std::max(active_dt_, 1e-6F)),
+        static_cast<std::size_t>(steps_ - 1));
     const std::size_t next = std::min(index + 1, static_cast<std::size_t>(steps_ - 1));
+    const double base = static_cast<double>(index) * active_dt_;
+    const double ratio = active_dt_ > 0.0 ? std::clamp((elapsed - base) / active_dt_, 0.0, 1.0)
+                                          : 0.0;
+    std_msgs::msg::Float64MultiArray message;
+    message.data.resize(controller_source_.size());
     for (std::size_t i = 0; i < controller_source_.size(); ++i) {
       const std::size_t source = controller_source_[i];
-      const double first = horizon_[index * dof_ + source];
-      const double second = horizon_[next * dof_ + source];
+      const double first = active_[index * dof_ + source];
+      const double second = active_[next * dof_ + source];
       message.data[i] = static_cast<float>(first + ratio * (second - first));
     }
     command_pub_->publish(message);
+    (void)duration;
   }
 
   void cancel_callback(
       const std::shared_ptr<std_srvs::srv::Trigger::Request> /*request*/,
       std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-    streaming_ = false;
-    pending_goal_ = false;
-    solved_ = false;
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      active_goal_ = false;
+      proposal_fresh_ = false;
+      has_active_ = false;
+    }
     response->success = true;
-    response->message = "MPC stream canceled";
+    response->message = "MPC canceled";
     set_status("canceled");
   }
 
   std::string artifact_dir_;
   std::string command_topic_;
-  double mpc_rate_ = 30.0;
+  double control_rate_ = 30.0;
   double command_rate_ = 100.0;
+  double command_interval_ = 0.24;
+  double knot_dt_ = 0.12;
+  int knots_per_interval_ = 2;
   int dof_ = 0;
   int tool_count_ = 0;
   int steps_ = 0;
   int knots_ = 0;
-  int handoff_index_ = 0;
-  int max_handoffs_ = 200;
-  int handoffs_ = 0;
-  int executed_knots_ = 0;
 
   std::unique_ptr<curobo::robot::Kinematics> kinematics_;
   std::unique_ptr<curobo::robot::Scene> scene_;
@@ -453,27 +405,31 @@ class MpcNode : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_srv_;
-  rclcpp::TimerBase::SharedPtr solve_timer_;
+  rclcpp::TimerBase::SharedPtr accept_timer_;
   rclcpp::TimerBase::SharedPtr stream_timer_;
+  std::thread producer_;
+  std::atomic<bool> running_{true};
 
   std::vector<std::string> controller_names_;
   std::vector<std::size_t> controller_source_;
   std::unordered_map<std::string, std::string> name_map_;
 
-  std::mutex mutex_;
+  std::mutex mpc_mutex_;
+  std::mutex data_mutex_;
+  std::mutex status_mutex_;
   std::unordered_map<std::string, float> state_;
   bool has_state_ = false;
 
-  bool pending_goal_ = false;
-  bool solved_ = false;
-  bool streaming_ = false;
-  std::vector<float> horizon_;
-  std::vector<float> state_v_;
-  std::vector<float> next_q_;
-  std::vector<float> next_v_;
-  float horizon_dt_ = 0.0F;
-  double stream_duration_ = 0.0;
-  std::chrono::steady_clock::time_point stream_start_{};
+  bool active_goal_ = false;
+  bool proposal_fresh_ = false;
+  bool has_active_ = false;
+  int executed_knots_ = 0;
+  int handoffs_ = 0;
+  std::vector<float> proposal_;
+  float proposal_dt_ = 0.0F;
+  std::vector<float> active_;
+  float active_dt_ = 0.0F;
+  std::chrono::steady_clock::time_point active_start_{};
   std::string status_ = "idle";
 
   float* d_q_ = nullptr;

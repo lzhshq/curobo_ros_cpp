@@ -62,7 +62,42 @@ All runs were feasible and used **one graph capture**.
 
 ## MPC node
 
-`curobo_mpc_cpp` contains an **experimental closed-loop node**:
+`curobo_mpc_cpp` now uses a producer/consumer structure, matching the official
+curobo_ros pattern:
+
+```text
+producer thread (control_rate=30 Hz):
+  read /joint_states
+  → step()
+  → validate_trajectory()
+  → store latest proposal
+
+accept timer (command_interval=0.24 s):
+  accept the latest valid proposal
+  → make it the active command horizon
+  → advance executed_knots
+
+stream timer (command_rate=100 Hz):
+  publish samples from the active horizon to FPC
+```
+
+The producer never blocks on publishing. The consumer sends a fixed cadence, so
+100 Hz command output does not wait for the 20–30 ms solver.
+
+Current configuration:
+
+```yaml
+control_rate: 30.0       # desired producer cadence
+command_rate: 100.0      # FPC stream cadence
+command_interval: 0.24   # accept/latest-action window (curobo_ros default)
+trajectory_dt: 0.03      # MPC sample interval
+```
+
+`knots_per_interval` is derived from `command_interval / knot_dt`; for Franka
+0.24 s / 0.12 s = 2 knots. `executed_knots` advances by that amount on each
+accept.
+
+Run:
 
 ```bash
 # terminal 1
@@ -71,45 +106,15 @@ ros2 launch curobo_execution_cpp fake_fpc.launch.py
 # terminal 2
 ros2 launch curobo_mpc_cpp mpc.launch.py \
   artifact_dir:=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts/franka
-
-# terminal 3: send a small Cartesian goal in panda_link0
-ros2 topic pub --once /curobo_mpc/goal geometry_msgs/msg/PoseStamped \
-  "{header: {frame_id: panda_link0}, \
-    pose: {position: {x: 0.161283, y: 0.0, z: 0.641847}, \
-           orientation: {x: -0.988745, y: 0.007219, z: -0.149434, w: 0.001091}}}"
 ```
-
-It:
-
-1. waits for `/joint_states`;
-2. calls `MpcController::reset_cartesian()` on a goal;
-3. runs `step()` at `mpc_rate` until feasible;
-4. calls `validate_trajectory()` on the result;
-5. streams **four knot intervals** at `command_rate` to the FPC topic;
-6. calls `accept()` at the handoff boundary and replans from the measured
-   joint state;
-7. repeats until `max_handoffs` or `/curobo_mpc/cancel`.
-
-The first handoff is `4 * (trajectory_steps - 1) / (num_knots + 4)` samples
-(16 samples for Franka). `executed_knots` is 4 after each handoff, matching the
-MPC fixture's advance.
 
 Current limitations:
 
-- no hardware admission/ACK: `accept()` is called after the command window
-  finishes, not after a controller acknowledgement;
-- no terminal-pose convergence check; it stops at `max_handoffs` (default 200)
-  or cancel;
-- the seed is the current joint state repeated; difficult goals may need a
-  better seed or `constrain_path=false`;
-- goal is assumed to already be in the artifact base frame (no TF transform);
-- command window is 4 knots (~0.48 s for dt=0.03), not yet tuned to
-  curobo_ros's 0.24 s;
-- no RViz goal interaction yet.
-
-Next tuning:
-
-1. convergence stop (TCP error) instead of `max_handoffs`;
-2. command-window sweep (1, 2, 4, 8 knots) against fake FPC;
-3. real hardware admission/ACK and braking validation;
-4. only then real hardware.
+- admission is only validation + freshness, not a real ACK/fault/brake check;
+- no terminal-pose convergence check; cancel manually;
+- the producer uses a 30 Hz target timer, while official curobo_ros runs the
+  producer loop as fast as possible and only paces sends; the wall-clock solve
+  rate still needs measurement;
+- goal is assumed to be in the artifact base frame (no TF transform);
+- no RViz goal interaction yet;
+- tested against fake FPC only.

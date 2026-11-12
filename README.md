@@ -18,9 +18,9 @@ cuRobo C++ runtime (libcurobo_robot_runtime.so)
 ```
 
 The **planning node** does not execute trajectories or drive hardware. Execution
-lives in the separate `curobo_execution_cpp` package. MPC and robot-specific
-models are not part of this repository. A robot is selected by an exported
-artifact directory.
+lives in the separate `curobo_execution_cpp` package. MPC is experimental in
+`curobo_mpc_cpp`. Robot-specific models are not part of this repository; a robot
+is selected by an exported artifact directory.
 
 Local layout: the source repository is at `~/curobo_ros_cpp`; the colcon
 workspace `~/curobo_ros_ws/src/curobo_ros_cpp` is a symlink to it.
@@ -45,7 +45,7 @@ workspace `~/curobo_ros_ws/src/curobo_ros_cpp` is a symlink to it.
 | `curobo_execution_cpp` | Trajectory executor + JTC/topic/FPC adapters |
 | `curobo_planner_interfaces` | Minimal `PlanPose`, `AddObject`, `RemoveObject`, `ClearObjects` services (no nav2 dependency) |
 | `curobo_bringup` | Robot descriptors + combined planner/executor/RViz launch |
-| `curobo_mpc_cpp` | Experimental closed-loop C++ MPC node (4-knot handoff) |
+| `curobo_mpc_cpp` | Experimental producer/consumer C++ MPC node |
 
 `curobo_msgs` is intentionally not required: its `GetVoxelGrid.srv` depends on
 `nav2_msgs`, which a planning-only node does not need.
@@ -439,9 +439,6 @@ Not included (next steps):
 - `target_poses` / `target_joint_positions`
 - TF transforms for object poses
 - IK/FK services
-- RViz whole-arm ghost preview
-- FPC streaming adapter
-- MPC (`curobo_mpc_cpp` will be a separate package)
 
 ## Notes
 

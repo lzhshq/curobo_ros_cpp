@@ -86,8 +86,8 @@ The URDF must use the same joint names as `/joint_states`.
 
 Artifact joint names and controller names can differ:
 
-- tickbot artifact: `j1..j7`
-- tickbot JTC: `joint1..7`
+- AR5 artifact: `j1..j7`
+- AR5 JTC: `joint1..7`
 - Franka artifact: `panda_joint1..7`
 
 Set `joint_names` in the executor YAML. The adapter maps by order; the order

@@ -73,20 +73,21 @@ ros2 launch curobo_planner_cpp rviz.launch.py \
 
 ## Tickbot
 
-Use the tickbot fake hardware stack:
+Use the AR5 fake hardware stack (historical ROS package name: `tickbot_rokae_hardware`):
 
 ```bash
 ros2 launch tickbot_rokae_hardware robot_hw.launch.py \
   use_fake_hardware:=true update_rate:=500
 ```
 
-Then the planner with `robot:=tickbot` and
+Then the planner with `robot:=ar5` and
 `base_frame:=right_arm_base`, and the executor with
-`config:=.../tickbot.yaml`.
+`config:=.../config/robots/ar5.yaml`.
 
-Important: the tickbot artifact uses `j1..j7`, while the JTC uses
-`joint1..7`. `curobo_execution_cpp/config/robots/tickbot.yaml` maps names and
-assumes the same joint order.
+Important: the AR5 artifact uses `j1..j7`, while the JTC uses
+`joint1..7`. `curobo_execution_cpp/config/robots/ar5.yaml` maps names and
+assumes the same joint order. The ROS package names remain `tickbot_*` for
+historical reasons; that is the package, not the arm.
 
 ## Terminal roles
 
@@ -106,5 +107,5 @@ Planning never moves the robot. Only `execute_latest` sends a JTC goal.
 - The fake JTC holds its last pose; it does not return to home automatically.
 - Execution has no external tracking-error supervision; it relies on the JTC
   action result.
-- The tickbot JTC uses `open_loop_control: true`, so tracking is not corrected
+- The AR5 JTC uses `open_loop_control: true`, so tracking is not corrected
   by the controller.

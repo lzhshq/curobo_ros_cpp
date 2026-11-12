@@ -41,6 +41,19 @@ set_target_properties(curobo_core_cpp PROPERTIES
   BUILD_RPATH "${CUROBO_RUNTIME_ROOT}/build/robot"
   INSTALL_RPATH "${CUROBO_RUNTIME_ROOT}/build/robot")
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_planner_core test/test_planner_core.cpp)
+  target_include_directories(test_planner_core PRIVATE
+    "${CUROBO_RUNTIME_ROOT}/robot/include")
+  target_link_libraries(test_planner_core
+    curobo_core_cpp
+    "${CUROBO_ROBOT_RUNTIME}"
+    CUDA::cudart)
+  set_target_properties(test_planner_core PROPERTIES
+    BUILD_RPATH "${CUROBO_RUNTIME_ROOT}/build/robot")
+endif()
+
 option(BUILD_EXAMPLES "Build curobo_core_cpp examples" ON)
 if(BUILD_EXAMPLES)
   add_executable(plan_pose_smoke examples/plan_pose_smoke.cpp)

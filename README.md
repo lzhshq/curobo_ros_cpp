@@ -29,8 +29,9 @@ workspace `~/curobo_ros_ws/src/curobo_ros_cpp` is a symlink to it.
 
 - [Architecture](docs/architecture.md): packages, data flow, threading, artifacts
 - [RViz](docs/rviz.md): tube path, robot model, ghost, launch arguments
-- [Fake hardware](docs/fake_hardware.md): fake Franka/tickbot JTC and terminals
+- [Fake hardware](docs/fake_hardware.md): fake Franka/AR5 JTC and terminals
 - [Troubleshooting](docs/troubleshooting.md): common errors and checks
+- [Testing](docs/testing.md): C++ gtest, smoke tests, ROS integration
 
 ## Packages
 
@@ -100,12 +101,12 @@ ros2 launch curobo_planner_cpp planner.launch.py \
   robot:=franka base_frame:=panda_link0
 ```
 
-To keep one config per robot, create e.g. `config/tickbot.yaml` and
-`config/franka.yaml`, then:
+To switch robots without editing the default YAML:
 
 ```bash
+export CUROBO_ARTIFACT_ROOT=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts
 ros2 launch curobo_planner_cpp planner.launch.py \
-  config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_planner_cpp/config/tickbot.yaml
+  robot:=ar5 base_frame:=right_arm_base
 ```
 
 Command-line launch arguments override the YAML when non-empty:
@@ -128,7 +129,7 @@ The YAML key must match the node name (`curobo_planner`):
 ```yaml
 curobo_planner:
   ros__parameters:
-    artifact_dir: /home/vitai/curobo-fast/cpp_runtime/robot/artifacts/tickbot
+    artifact_dir: /home/vitai/curobo-fast/cpp_runtime/robot/artifacts/ar5
     base_frame: right_arm_base
 ```
 
@@ -217,7 +218,7 @@ Run the scene regression without ROS:
 V0.2 verification (same binary, two artifacts):
 
 ```text
-tickbot: 24/24 checks passed, 0 failures
+AR5:   24/24 checks passed, 0 failures
 franka:  24/24 checks passed, 0 failures
 ROS:     add_object -> PlanPose failed -> remove_object -> PlanPose succeeded
 ```
@@ -241,7 +242,7 @@ Start it with a robot config:
 
 ```bash
 ros2 launch curobo_execution_cpp execution.launch.py \
-  config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_execution_cpp/config/robots/tickbot.yaml
+  config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_execution_cpp/config/robots/ar5.yaml
 ```
 
 Then, after a successful `PlanPose`:
@@ -256,10 +257,10 @@ ros2 service call /curobo_executor/cancel std_srvs/srv/Trigger
 - `JtcAdapter` sends a `FollowJointTrajectory` goal and reports the action result.
 - `TopicAdapter` publishes the trajectory for a driver bridge (curobo_ros style).
 - `time_scale < 1` slows down the trajectory; `> 1` speeds it up.
-- `joint_names` maps artifact names to controller names. tickbot uses
+- `joint_names` maps artifact names to controller names. AR5 uses
   `j1..j7` in the artifact and `joint1..7` in JTC; positions are assumed to be
   in the same order.
-- `open_loop_control: true` in the tickbot JTC means tracking-error supervision
+- `open_loop_control: true` in the AR5 JTC means tracking-error supervision
   must be done outside JTC; this adapter currently relies on the action result.
 
 The tested chain:
@@ -424,7 +425,7 @@ Included:
 - Optional Franka `RobotModel` via `robot_state_publisher`
 - Translucent ghost trajectory replay (`preview_replay`)
 - Scene object markers for `add_object`
-- Kinematic fake JTC for Franka/tickbot (`tools/fake_jtc.py`)
+- Kinematic fake JTC for Franka/AR5 (`tools/fake_jtc.py`)
 
 Not included (next steps):
 

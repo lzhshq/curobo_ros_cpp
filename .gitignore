@@ -1,0 +1,16 @@
+# build
+build/
+install/
+log/
+
+# exported cuRobo artifacts (deployed separately)
+artifacts/
+**/artifacts/
+
+# Python
+__pycache__/
+*.pyc
+
+# editors
+.vscode/
+.idea/

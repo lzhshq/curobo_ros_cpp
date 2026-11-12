@@ -1,0 +1,25 @@
+curobo_planner:
+  ros__parameters:
+    # Absolute artifact directory. Leave empty and set artifact_root + robot
+    # when artifacts are deployed in a shared directory.
+    artifact_dir: ""
+    artifact_root: ""
+    robot: ""
+
+    # Empty means the first tool frame in the artifact.
+    tool_frame: ""
+    base_frame: ""
+
+    max_attempts: 10
+    enable_graph_attempt: 1
+    outer_iterations: 2
+
+    scene_max_cuboids: 8
+    scene_max_capsules: 0
+    scene_max_cylinders: 0
+    scene_max_meshes: 0
+    scene_max_voxel_grids: 0
+    scene_max_voxels_per_grid: 0
+
+    joint_states_topic: "~/joint_states"
+    publish_trajectory: true

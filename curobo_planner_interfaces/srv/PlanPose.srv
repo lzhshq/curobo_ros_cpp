@@ -1,0 +1,12 @@
+sensor_msgs/JointState start_pose
+
+geometry_msgs/Pose target_pose
+geometry_msgs/Pose[] target_poses
+float64[] target_joint_positions
+
+---
+
+bool success
+string message
+sensor_msgs/JointState[] trajectory
+float64 dt

@@ -1,0 +1,190 @@
+<?xml version="1.0"?>
+<robot name="tickbot_arm_description">
+  <link name="right_arm_base">
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/visual/AR5-5_08R-W4C1C9-ZY2_base.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="tickbot_grey"><color rgba="0.62 0.64 0.68 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/AR5-5_08R-W4C1C9-ZY2_base.stl"/></geometry>
+    </collision>
+  </link>
+  <link name="l1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/visual/AR5-5_08R-W4C1C9-ZY2_link1.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="tickbot_grey"><color rgba="0.62 0.64 0.68 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/AR5-5_08R-W4C1C9-ZY2_link1.stl"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="2.166" />
+      <inertia ixx="0.00329374" ixy="0.00000029" ixz="0.00000048" iyy="0.00258807" iyz="0.00001496" izz="0.00314817" />
+      <origin rpy="0 0 0" xyz="0.000186 -0.0015429999999999999 0.172784" />
+    </inertial>
+  </link>
+  <link name="l2">
+    <visual>
+      <origin xyz="0 0 0.0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/visual/AR5-5_08R-W4C1C9-ZY2_link2.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="tickbot_grey"><color rgba="0.62 0.64 0.68 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/AR5-5_08R-W4C1C9-ZY2_link2.stl"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="1.903" />
+      <inertia ixx="0.00779827" ixy="0.00000248" ixz="0.00000226" iyy="0.00674843" iyz="0.00049284" izz="0.00305518" />
+      <origin rpy="0 0 0" xyz="1.7e-05 -0.001795 0.10669100000000001" />
+    </inertial>
+  </link>
+  <link name="l3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/visual/AR5-5_08R-W4C1C9-ZY2_link3.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="tickbot_grey"><color rgba="0.62 0.64 0.68 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/AR5-5_08R-W4C1C9-ZY2_link3.stl"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="1.845" />
+      <inertia ixx="0.00635592" ixy="0.00001599" ixz="0.00029945" iyy="0.00581609" iyz="0.00004683" izz="0.00269115" />
+      <origin rpy="0 0 0" xyz="0.009022 0.0009 -0.019936" />
+    </inertial>
+  </link>
+  <link name="l4">
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/visual/AR5-5_08R-W4C1C9-ZY2_link4.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="tickbot_grey"><color rgba="0.62 0.64 0.68 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/AR5-5_08R-W4C1C9-ZY2_link4.stl"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="1.037" />
+      <inertia ixx="0.00294610" ixy="0.00002481" ixz="-0.00011850" iyy="0.00244455" iyz="-0.00022011" izz="0.00140934" />
+      <origin rpy="0 0 0" xyz="-0.009272 0.002169 0.084042" />
+    </inertial>
+  </link>
+  <link name="l5">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/visual/AR5-5_08R-W4C1C9-ZY2_link5.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="tickbot_grey"><color rgba="0.62 0.64 0.68 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/AR5-5_08R-W4C1C9-ZY2_link5.stl"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="1.279" />
+      <inertia ixx="0.00240951" ixy="0.00004151" ixz="-0.00004311" iyy="0.00200115" iyz="-0.00006491" izz="0.00158266" />
+      <origin rpy="0 0 0" xyz="-0.000776 -0.000804 -0.08673399999999999" />
+    </inertial>
+  </link>
+  <link name="l6">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/visual/AR5-5_08R-W4C1C9-ZY2_link6.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="tickbot_grey"><color rgba="0.62 0.64 0.68 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/AR5-5_08R-W4C1C9-ZY2_link6.stl"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="0.906" />
+      <inertia ixx="0.00061487" ixy="0.00000092" ixz="-0.00000097" iyy="0.00074943" iyz="-0.00000047" izz="0.00076056" />
+      <origin rpy="0 0 0" xyz="-0.005059 -0.00025 -5.5e-05" />
+    </inertial>
+  </link>
+  <link name="l7">
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/visual/AR5-5_08R-W4C1C9-ZY2_link7.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="tickbot_grey"><color rgba="0.62 0.64 0.68 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://tickbot_arm_description/meshes/AR5-5_08R-W4C1C9-ZY2_link7.stl"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="0.33" />
+      <inertia ixx="0.00046020" ixy="-0.00000266" ixz="0.00004064" iyy="0.00068698" iyz="0.00000424" izz="0.00043963" />
+      <origin rpy="0 0 0" xyz="-0.00122 0.0006730000000000001 0.053984000000000004" />
+    </inertial>
+  </link>
+  <link name="flange">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <mass value="0" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+  </link>
+  <joint name="joint1" type="revolute">
+    <parent link="right_arm_base"/>
+    <child link="l1"/>
+    <origin xyz="-0.000083 0.001089 0.001505" rpy="0 0 0"/>
+    <!-- 2026-11-04 实测：臂基座相对 URDF 有约 1.9 mm 固定偏移
+         （8 姿态拟合，跨姿态标准差 <0.06 mm，拟合后残差 0.12 mm）。
+         放在 j1 原点 = 整体平移臂基座，碰撞体/IK/TF 一致。 -->
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.1067" upper="3.1067" effort="113" velocity="3.0543261909900763"/>
+  </joint>
+  <joint name="joint2" type="revolute">
+    <parent link="l1"/>
+    <child link="l2"/>
+    <origin xyz="-0.000011023 -0.000034395 0.174499924" rpy="0.002205157 -0.000000000 0.000000000"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-2.0944" upper="2.0944" effort="113" velocity="3.0543261909900763"/>
+  </joint>
+  <joint name="joint3" type="revolute">
+    <parent link="l2"/>
+    <child link="l3"/>
+    <origin xyz="0.000004171 -0.000737237 0.332169685" rpy="0.002219456 -0.000000000 0.000000000"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.1067" upper="3.1067" effort="70" velocity="4.71238898038469"/>
+  </joint>
+  <joint name="joint4" type="revolute">
+    <parent link="l3"/>
+    <child link="l4"/>
+    <origin xyz="0.010504432 -0.000032052 0.000000037" rpy="-0.001148960 -0.000000000 0.000000000"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.0472" upper="2.5307" effort="70" velocity="5.235987755982989"/>
+  </joint>
+  <joint name="joint5" type="revolute">
+    <parent link="l4"/>
+    <child link="l5"/>
+    <origin xyz="-0.011098075 -0.000017398 0.278126660" rpy="0.000062553 -0.000000000 0.000000000"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.1067" upper="3.1067" effort="19" velocity="4.1887902047863905"/>
+  </joint>
+  <joint name="joint6" type="revolute">
+    <parent link="l5"/>
+    <child link="l6"/>
+    <origin xyz="-0.000029322 -0.000457101 -0.000000137" rpy="0.000300364 -0.000000000 0.000000000"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.8727" upper="0.8727" effort="19" velocity="4.1887902047863905"/>
+  </joint>
+  <joint name="joint7" type="revolute">
+    <parent link="l6"/>
+    <child link="l7"/>
+    <origin xyz="0.000000000 0.000000000 0.000000000" rpy="0.000000000 -0.000000000 0.000000000"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.8727" upper="0.8727" effort="19" velocity="4.1887902047863905"/>
+  </joint>
+  <joint name="j_flange" type="fixed">
+    <parent link="l7"/>
+    <child link="flange"/>
+    <origin xyz="0.000000000 -0.000000000 0.090000000" rpy="0.000000000 -0.000000000 0.000000000"/>
+  </joint>
+</robot>

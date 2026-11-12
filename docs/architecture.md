@@ -45,6 +45,7 @@ PlannerNode ──► /planned_trajectory ──► preview_replay ──► /pr
 | `curobo_planner_cpp` | `PlanPose`, scene services, path/tube markers, ghost replay | execution, physics |
 | `curobo_execution_cpp` | consumes planned trajectories, JTC/topic adapters | planning |
 | `curobo_planner_interfaces` | `PlanPose`, `AddObject`, `RemoveObject`, `ClearObjects` | anything else |
+| `curobo_bringup` | robot descriptor, mapping validation, combined launch | planning/execution logic |
 
 ## Planning data flow
 

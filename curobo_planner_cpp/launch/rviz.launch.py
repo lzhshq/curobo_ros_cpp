@@ -20,6 +20,7 @@ def _make_rviz(context, *args, **kwargs):
     ghost_time_scale = float(LaunchConfiguration('ghost_time_scale').perform(context))
     ghost_loop = LaunchConfiguration('ghost_loop').perform(context).lower() in (
         '1', 'true', 'yes')
+    ghost_joint_name_map = LaunchConfiguration('ghost_joint_name_map').perform(context)
 
     try:
         with open(config, 'r') as handle:
@@ -85,6 +86,7 @@ def _make_rviz(context, *args, **kwargs):
                 'joint_states_topic': '/preview/joint_states',
                 'time_scale': ghost_time_scale,
                 'loop': ghost_loop,
+                'joint_name_map': ghost_joint_name_map,
             }],
         ))
         nodes.append(Node(
@@ -131,5 +133,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'ghost_loop', default_value='true',
             description='Loop the ghost replay from red to green'),
+        DeclareLaunchArgument(
+            'ghost_joint_name_map', default_value='',
+            description='Artifact:URDF joint names for the ghost, e.g. j1:joint1,...'),
         OpaqueFunction(function=_make_rviz),
     ])

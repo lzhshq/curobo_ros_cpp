@@ -97,6 +97,23 @@ Important: the AR5 artifact uses `j1..j7`, while the JTC uses
 assumes the same joint order. The ROS package names remain `tickbot_*` for
 historical reasons; that is the package, not the arm.
 
+## One-command stack
+
+For Franka, the fake JTC, planner, executor, and RViz can be started together:
+
+```bash
+export CUROBO_ARTIFACT_ROOT=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts
+ros2 launch curobo_bringup robot_stack.launch.py robot:=franka fake:=auto
+```
+
+For AR5, start the external fake hardware, then:
+
+```bash
+ros2 launch curobo_bringup robot_stack.launch.py robot:=ar5 fake:=false
+```
+
+See [Bringup](bringup.md) for the descriptor format.
+
 ## Terminal roles
 
 | Terminal | Process | Role |

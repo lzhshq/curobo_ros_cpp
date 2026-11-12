@@ -1,0 +1,23 @@
+name: franka
+
+artifact: franka
+base_frame: panda_link0
+tool_frame: panda_hand
+
+joints:
+  artifact: [panda_joint1, panda_joint2, panda_joint3, panda_joint4, panda_joint5, panda_joint6, panda_joint7]
+  controller: [panda_joint1, panda_joint2, panda_joint3, panda_joint4, panda_joint5, panda_joint6, panda_joint7]
+  urdf: [panda_joint1, panda_joint2, panda_joint3, panda_joint4, panda_joint5, panda_joint6, panda_joint7]
+
+execution:
+  adapter: jtc
+  action: /position_joint_trajectory_controller/follow_joint_trajectory
+  time_scale: 1.0
+  goal_tolerance: 0.02
+  goal_time_tolerance: 2.0
+
+visualization:
+  urdf: /opt/ros/humble/share/moveit_resources_panda_description/urdf/panda.urdf
+
+# The repository ships a kinematic fake JTC for Franka.
+fake_launch: package://curobo_execution_cpp/launch/fake_franka.launch.py

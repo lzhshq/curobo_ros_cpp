@@ -5,6 +5,7 @@
 #include <cmath>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
@@ -31,6 +32,22 @@ class PreviewReplay : public rclcpp::Node {
     time_scale_ = this->declare_parameter<double>("time_scale", 1.0);
     loop_ = this->declare_parameter<bool>("loop", false);
     const double rate = this->declare_parameter<double>("publish_rate", 100.0);
+    const std::string name_map =
+        this->declare_parameter<std::string>("joint_name_map", "");
+    std::size_t start = 0;
+    while (start < name_map.size()) {
+      const std::size_t comma = name_map.find(',', start);
+      const std::string entry = name_map.substr(
+          start, comma == std::string::npos ? std::string::npos : comma - start);
+      const std::size_t separator = entry.find(':');
+      if (separator != std::string::npos) {
+        joint_name_map_[entry.substr(0, separator)] = entry.substr(separator + 1);
+      }
+      if (comma == std::string::npos) {
+        break;
+      }
+      start = comma + 1;
+    }
 
     publisher_ = this->create_publisher<sensor_msgs::msg::JointState>(joint_states_topic, 20);
     subscription_ = this->create_subscription<trajectory_msgs::msg::JointTrajectory>(
@@ -93,9 +110,12 @@ class PreviewReplay : public rclcpp::Node {
 
     sensor_msgs::msg::JointState message;
     message.header.stamp = this->now();
-    message.name = trajectory_.joint_names;
-    message.position.resize(message.name.size());
-    for (std::size_t joint = 0; joint < message.name.size(); ++joint) {
+    message.name.resize(trajectory_.joint_names.size());
+    message.position.resize(trajectory_.joint_names.size());
+    for (std::size_t joint = 0; joint < trajectory_.joint_names.size(); ++joint) {
+      const std::string& source = trajectory_.joint_names[joint];
+      const auto mapped = joint_name_map_.find(source);
+      message.name[joint] = mapped == joint_name_map_.end() ? source : mapped->second;
       const double first = points[index].positions[joint];
       double value = first;
       if (index + 1 < points.size() && ratio > 0.0) {
@@ -117,6 +137,7 @@ class PreviewReplay : public rclcpp::Node {
   double time_scale_ = 1.0;
   double duration_ = 0.0;
   std::chrono::steady_clock::time_point start_{};
+  std::unordered_map<std::string, std::string> joint_name_map_;
 };
 
 }  // namespace curobo_ros_cpp

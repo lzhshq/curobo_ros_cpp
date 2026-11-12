@@ -46,6 +46,18 @@ artifacts under `CUROBO_ARTIFACT_ROOT` (default:
 - sphere/capsule/cylinder add/remove;
 - `MESH` rejection.
 
+## Robot descriptor test
+
+```bash
+cd ~/curobo_ros_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+export CUROBO_ARTIFACT_ROOT=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts
+colcon test --packages-select curobo_bringup --event-handlers console_direct+
+```
+
+It validates the AR5/Franka descriptors and the generated mappings.
+
 ## ROS integration
 
 The fake Franka chain is a manual integration test:

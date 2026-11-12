@@ -1,0 +1,27 @@
+name: ar5
+
+artifact: ar5
+base_frame: right_arm_base
+tool_frame: flange
+
+joints:
+  # cuRobo artifact order.
+  artifact: [j1, j2, j3, j4, j5, j6, j7]
+  # ros2_control / JTC order.
+  controller: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+  # RViz URDF order.
+  urdf: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+
+execution:
+  adapter: jtc
+  action: /position_joint_trajectory_controller/follow_joint_trajectory
+  time_scale: 1.0
+  goal_tolerance: 0.02
+  goal_time_tolerance: 2.0
+
+visualization:
+  # Vendored RViz projection of the AR5 right arm (joint1..7 names).
+  urdf: package://curobo_bringup/config/urdf/ar5.urdf
+
+# AR5 fake hardware is the external tickbot_rokae_hardware stack.
+fake_launch: ""

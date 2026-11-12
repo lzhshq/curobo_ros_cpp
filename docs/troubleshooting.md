@@ -15,7 +15,7 @@ If the prefix is missing, rebuild:
 ```bash
 cd ~/curobo_ros_ws
 colcon build --symlink-install \
-  --packages-up-to curobo_planner_cpp curobo_execution_cpp \
+  --packages-up-to curobo_bringup curobo_planner_cpp curobo_execution_cpp \
   --cmake-args \
     -DCUROBO_RUNTIME_ROOT=/home/vitai/curobo-fast/cpp_runtime \
     -DCMAKE_BUILD_TYPE=Release

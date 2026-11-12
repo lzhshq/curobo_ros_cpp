@@ -1,4 +1,7 @@
 import os
+import tempfile
+
+import yaml
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -28,7 +31,14 @@ def _launch_setup(context, *args, **kwargs):
             overrides[name] = float(value)
 
     if overrides:
-        parameters.append(overrides)
+        temp = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+        yaml.safe_dump(
+            {'curobo_executor': {'ros__parameters': overrides}},
+            temp,
+            default_flow_style=False,
+        )
+        temp.close()
+        parameters.append(temp.name)
 
     return [
         Node(

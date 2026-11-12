@@ -46,7 +46,7 @@ artifacts under `CUROBO_ARTIFACT_ROOT` (default:
 - sphere/capsule/cylinder add/remove;
 - `MESH` rejection.
 
-## Robot descriptor test
+## Bringup tests
 
 ```bash
 cd ~/curobo_ros_ws
@@ -56,7 +56,18 @@ export CUROBO_ARTIFACT_ROOT=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts
 colcon test --packages-select curobo_bringup --event-handlers console_direct+
 ```
 
-It validates the AR5/Franka descriptors and the generated mappings.
+It runs:
+
+- descriptor validation for AR5/Franka;
+- an end-to-end Franka stack test:
+  - starts `robot_stack.launch.py robot:=franka fake:=auto rviz:=false`
+  - calls `PlanPose`
+  - calls `execute_latest`
+  - waits for JTC `result code=0`
+  - shuts the stack down
+
+The end-to-end test uses `ROS_DOMAIN_ID=91`, so it does not collide with a
+running demo on domain 79. It skips when `CUROBO_ARTIFACT_ROOT` is unset.
 
 ## ROS integration
 

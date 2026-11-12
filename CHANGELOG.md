@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.1
+
+- Plan from the live `/joint_states` state by default so the red start and
+  ghost start match the robot's current pose.
+- Fake Franka starts at the folded home `[0,-1.3,0,-2.5,0,1.5,0.8]`.
+- Added `ghost_loop` (default true) to replay red-to-green continuously.
+
 ## v0.7.0
 
 - Added `preview_replay` for a translucent whole-arm ghost trajectory.

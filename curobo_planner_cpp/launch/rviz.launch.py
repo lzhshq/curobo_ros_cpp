@@ -18,6 +18,8 @@ def _make_rviz(context, *args, **kwargs):
     show_ghost = LaunchConfiguration('show_ghost').perform(context).lower() in (
         '1', 'true', 'yes')
     ghost_time_scale = float(LaunchConfiguration('ghost_time_scale').perform(context))
+    ghost_loop = LaunchConfiguration('ghost_loop').perform(context).lower() in (
+        '1', 'true', 'yes')
 
     try:
         with open(config, 'r') as handle:
@@ -82,7 +84,7 @@ def _make_rviz(context, *args, **kwargs):
                 'trajectory_topic': '/curobo_planner/planned_trajectory',
                 'joint_states_topic': '/preview/joint_states',
                 'time_scale': ghost_time_scale,
-                'loop': False,
+                'loop': ghost_loop,
             }],
         ))
         nodes.append(Node(
@@ -126,5 +128,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'ghost_time_scale', default_value='1.0',
             description='Ghost replay speed multiplier'),
+        DeclareLaunchArgument(
+            'ghost_loop', default_value='true',
+            description='Loop the ghost replay from red to green'),
         OpaqueFunction(function=_make_rviz),
     ])

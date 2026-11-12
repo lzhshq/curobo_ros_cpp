@@ -17,6 +17,9 @@ def generate_launch_description():
                 ],
                 'action': '/position_joint_trajectory_controller/follow_joint_trajectory',
                 'publish_rate': 100.0,
+                'initial_positions': [
+                    0.0, -1.3, 0.0, -2.5, 0.0, 1.5, 0.8,
+                ],
             }],
         ),
     ])

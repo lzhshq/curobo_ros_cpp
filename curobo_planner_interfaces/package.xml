@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>curobo_planner_interfaces</name>
-  <version>0.7.0</version>
+  <version>0.7.1</version>
   <description>Minimal planning-only interfaces for curobo_planner_cpp.</description>
   <maintainer email="384336014@qq.com">lzhshq</maintainer>
   <license>Apache-2.0</license>

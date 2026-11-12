@@ -318,7 +318,13 @@ ros2 launch curobo_planner_cpp rviz.launch.py \
 `preview_replay` replays `/curobo_planner/planned_trajectory` as
 `/preview/joint_states`; a second `robot_state_publisher` uses the same URDF
 with `frame_prefix=preview/`, and RViz shows a semi-transparent `GhostRobot`.
-`ghost_time_scale < 1` slows the replay.
+`ghost_time_scale < 1` slows the replay; `ghost_loop:=true` repeats it from the
+red start to the green goal.
+
+The planner subscribes to `/joint_states` by default. If `PlanPose.start_pose`
+is empty, it plans from the current state, so the red start marker and ghost
+start match the robot's current/initial pose. The fake Franka starts at
+`[0, -1.3, 0, -2.5, 0, 1.5, 0.8]` (folded home), not the singular zero pose.
 
 Scene objects added through `add_object` are published as
 `/curobo_planner/scene_markers` (`MarkerArray`) so the table/box/sphere is
@@ -389,6 +395,7 @@ Verified: 10 trajectory points, result `code=0 trajectory completed`, and
 | `publish_path` | `true` | Publish `~/planned_path` and markers |
 | `path_marker_radius` | `0.006` | Radius of the 3D tube marker (m) |
 | `publish_scene_markers` | `true` | Publish `~/scene_markers` for scene objects |
+| `joint_states_topic` | `/joint_states` | Current state source for an empty `start_pose` |
 
 Path resolution order: `artifact_dir` → `artifact_root/robot` → error.
 

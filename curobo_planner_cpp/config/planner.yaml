@@ -31,3 +31,4 @@ curobo_planner:
     publish_trajectory: true
     publish_path: true
     path_marker_radius: 0.006
+    publish_scene_markers: true

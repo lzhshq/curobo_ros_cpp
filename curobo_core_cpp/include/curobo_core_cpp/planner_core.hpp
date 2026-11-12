@@ -101,6 +101,7 @@ class PlannerCore {
   bool remove_object(const std::string& name, std::string& error);
   bool clear_objects(std::string& error);
   std::vector<std::string> object_names() const;
+  std::vector<ObjectSpec> object_specs() const;
   int object_count() const;
 
   // Forward kinematics for the selected tool frame. positions is row-major

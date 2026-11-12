@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.0
+
+- Added `preview_replay` for a translucent whole-arm ghost trajectory.
+- Added `preview/` robot_state_publisher and TF wiring in `rviz.launch.py`.
+- Added `/curobo_planner/scene_markers` for primitive scene objects.
+- Moved the source repository to `~/curobo_ros_cpp` (workspace source is a symlink).
+
 ## v0.6.0
 
 - Replaced the flat `LINE_STRIP` path with 3D cylinder segments

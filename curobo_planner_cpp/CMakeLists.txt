@@ -18,6 +18,9 @@ add_executable(planner_node
   src/planner_node.cpp
   src/main.cpp)
 
+add_executable(preview_replay
+  src/preview_replay.cpp)
+
 target_include_directories(planner_node PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
@@ -30,10 +33,15 @@ ament_target_dependencies(planner_node
   visualization_msgs
   trajectory_msgs)
 
+ament_target_dependencies(preview_replay
+  rclcpp
+  sensor_msgs
+  trajectory_msgs)
+
 target_link_libraries(planner_node
   curobo_core_cpp::curobo_core_cpp)
 
-install(TARGETS planner_node
+install(TARGETS planner_node preview_replay
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch config rviz

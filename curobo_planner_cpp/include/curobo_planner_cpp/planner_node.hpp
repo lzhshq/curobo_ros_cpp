@@ -56,6 +56,7 @@ class PlannerNode : public rclcpp::Node {
 
   void publish_trajectory(const curobo_ros_cpp::PlanResult& result);
   void publish_path(const curobo_ros_cpp::PlanResult& result);
+  void publish_scene_markers();
 
   std::unique_ptr<PlannerCore> core_;
 
@@ -67,6 +68,7 @@ class PlannerNode : public rclcpp::Node {
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr trajectory_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr scene_marker_pub_;
 
   std::mutex state_mutex_;
   std::mutex plan_mutex_;
@@ -77,6 +79,7 @@ class PlannerNode : public rclcpp::Node {
   bool publish_trajectory_enabled_ = true;
   bool publish_path_enabled_ = true;
   double path_marker_radius_ = 0.006;
+  bool publish_scene_markers_enabled_ = true;
 };
 
 }  // namespace curobo_ros_cpp

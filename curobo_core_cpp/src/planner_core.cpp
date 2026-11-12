@@ -654,6 +654,10 @@ std::vector<std::string> PlannerCore::object_names() const {
   return names;
 }
 
+std::vector<ObjectSpec> PlannerCore::object_specs() const {
+  return impl_->objects;
+}
+
 int PlannerCore::object_count() const {
   return static_cast<int>(impl_->objects.size());
 }

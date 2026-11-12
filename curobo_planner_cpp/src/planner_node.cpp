@@ -73,6 +73,7 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
   this->declare_parameter<bool>("publish_trajectory", true);
   this->declare_parameter<bool>("publish_path", true);
   this->declare_parameter<double>("path_marker_radius", 0.006);
+  this->declare_parameter<bool>("publish_scene_markers", true);
   this->declare_parameter<bool>("node_is_available", false);
 
   std::string artifact_dir = this->get_parameter("artifact_dir").as_string();
@@ -112,6 +113,7 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
   publish_trajectory_enabled_ = this->get_parameter("publish_trajectory").as_bool();
   publish_path_enabled_ = this->get_parameter("publish_path").as_bool();
   path_marker_radius_ = this->get_parameter("path_marker_radius").as_double();
+  publish_scene_markers_enabled_ = this->get_parameter("publish_scene_markers").as_bool();
 
   RCLCPP_INFO(this->get_logger(), "Loaded artifact: %s", artifact_dir.c_str());
   RCLCPP_INFO(this->get_logger(), "dof=%d joints=[%s] tools=[%s]", core_->num_dof(),
@@ -145,6 +147,8 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
   path_pub_ = this->create_publisher<nav_msgs::msg::Path>("~/planned_path", 10);
   marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
       "~/planned_markers", 10);
+  scene_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+      "~/scene_markers", rclcpp::QoS(1).transient_local());
 
   this->set_parameter(rclcpp::Parameter("node_is_available", true));
   RCLCPP_INFO(this->get_logger(),
@@ -298,6 +302,7 @@ void PlannerNode::plan_callback(
 
   publish_trajectory(result);
   publish_path(result);
+  publish_scene_markers();
 }
 
 void PlannerNode::add_object_callback(
@@ -357,6 +362,7 @@ void PlannerNode::add_object_callback(
   response->success = success;
   response->message = success ? ("object '" + object.name + "' added") : error;
   if (success) {
+    publish_scene_markers();
     RCLCPP_INFO(this->get_logger(), "added object '%s'", object.name.c_str());
   } else {
     RCLCPP_WARN(this->get_logger(), "add_object failed: %s", error.c_str());
@@ -375,6 +381,7 @@ void PlannerNode::remove_object_callback(
   response->success = success;
   response->message = success ? ("object '" + request->name + "' removed") : error;
   if (success) {
+    publish_scene_markers();
     RCLCPP_INFO(this->get_logger(), "removed object '%s'", request->name.c_str());
   } else {
     RCLCPP_WARN(this->get_logger(), "remove_object failed: %s", error.c_str());
@@ -396,6 +403,7 @@ void PlannerNode::clear_objects_callback(
   response->message = success ? ("cleared " + std::to_string(count) + " objects") : error;
   response->count = success ? count : core_->object_count();
   if (success) {
+    publish_scene_markers();
     RCLCPP_INFO(this->get_logger(), "cleared %d objects", count);
   } else {
     RCLCPP_WARN(this->get_logger(), "clear_objects failed: %s", error.c_str());
@@ -492,6 +500,74 @@ void PlannerNode::publish_path(const PlanResult& result) {
   make_sphere(0, tool_path.front(), 1.0F, 0.0F, 0.0F);
   make_sphere(1, tool_path.back(), 0.0F, 1.0F, 0.0F);
   marker_pub_->publish(markers);
+}
+
+void PlannerNode::publish_scene_markers() {
+  if (!publish_scene_markers_enabled_ || scene_marker_pub_ == nullptr) {
+    return;
+  }
+
+  visualization_msgs::msg::MarkerArray markers;
+  visualization_msgs::msg::Marker clear;
+  clear.header.stamp = this->now();
+  clear.header.frame_id = base_frame_;
+  clear.ns = "scene";
+  clear.id = 0;
+  clear.action = visualization_msgs::msg::Marker::DELETEALL;
+  markers.markers.push_back(clear);
+
+  int id = 1;
+  for (const auto& object : core_->object_specs()) {
+    visualization_msgs::msg::Marker marker;
+    marker.header.stamp = clear.header.stamp;
+    marker.header.frame_id = base_frame_;
+    marker.ns = "scene";
+    marker.id = id++;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose.position.x = object.position[0];
+    marker.pose.position.y = object.position[1];
+    marker.pose.position.z = object.position[2];
+    marker.pose.orientation.x = object.quaternion[1];
+    marker.pose.orientation.y = object.quaternion[2];
+    marker.pose.orientation.z = object.quaternion[3];
+    marker.pose.orientation.w = object.quaternion[0];
+    marker.color.r = 1.0F;
+    marker.color.g = 0.55F;
+    marker.color.b = 0.1F;
+    marker.color.a = 0.6F;
+
+    switch (object.type) {
+      case ObjectType::CUBOID:
+        marker.type = visualization_msgs::msg::Marker::CUBE;
+        marker.scale.x = object.dimensions[0];
+        marker.scale.y = object.dimensions[1];
+        marker.scale.z = object.dimensions[2];
+        break;
+      case ObjectType::SPHERE:
+        marker.type = visualization_msgs::msg::Marker::SPHERE;
+        marker.scale.x = 2.0F * object.dimensions[0];
+        marker.scale.y = 2.0F * object.dimensions[0];
+        marker.scale.z = 2.0F * object.dimensions[0];
+        break;
+      case ObjectType::CYLINDER:
+        marker.type = visualization_msgs::msg::Marker::CYLINDER;
+        marker.scale.x = 2.0F * object.dimensions[0];
+        marker.scale.y = 2.0F * object.dimensions[0];
+        marker.scale.z = object.dimensions[1];
+        break;
+      case ObjectType::CAPSULE:
+        // RViz has no capsule marker; approximate with a cylinder.
+        marker.type = visualization_msgs::msg::Marker::CYLINDER;
+        marker.scale.x = 2.0F * object.dimensions[0];
+        marker.scale.y = 2.0F * object.dimensions[0];
+        marker.scale.z = object.dimensions[1];
+        break;
+      default:
+        continue;
+    }
+    markers.markers.push_back(std::move(marker));
+  }
+  scene_marker_pub_->publish(markers);
 }
 
 void PlannerNode::publish_trajectory(const PlanResult& result) {

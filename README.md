@@ -306,6 +306,24 @@ the TF tree; RViz then shows the Franka model moving with the fake hardware.
 This is the same approach as curobo_ros: it does not embed a model inside the
 planner; it relies on URDF + `robot_state_publisher` + `/joint_states`.
 
+Add a translucent whole-arm ghost:
+
+```bash
+ros2 launch curobo_planner_cpp rviz.launch.py \
+  base_frame:=panda_link0 \
+  robot_description:=/opt/ros/humble/share/moveit_resources_panda_description/urdf/panda.urdf \
+  show_robot:=true show_ghost:=true ghost_time_scale:=0.2
+```
+
+`preview_replay` replays `/curobo_planner/planned_trajectory` as
+`/preview/joint_states`; a second `robot_state_publisher` uses the same URDF
+with `frame_prefix=preview/`, and RViz shows a semi-transparent `GhostRobot`.
+`ghost_time_scale < 1` slows the replay.
+
+Scene objects added through `add_object` are published as
+`/curobo_planner/scene_markers` (`MarkerArray`) so the table/box/sphere is
+visible in RViz.
+
 ## Franka fake JTC (no MuJoCo)
 
 `curobo_execution_cpp` ships a kinematic fake JTC: it accepts
@@ -370,10 +388,11 @@ Verified: 10 trajectory points, result `code=0 trajectory completed`, and
 | `publish_trajectory` | `true` | Publish `~/planned_trajectory` |
 | `publish_path` | `true` | Publish `~/planned_path` and markers |
 | `path_marker_radius` | `0.006` | Radius of the 3D tube marker (m) |
+| `publish_scene_markers` | `true` | Publish `~/scene_markers` for scene objects |
 
 Path resolution order: `artifact_dir` → `artifact_root/robot` → error.
 
-## Scope (v0.6)
+## Scope (v0.7)
 
 Included:
 
@@ -386,6 +405,8 @@ Included:
 - `curobo_execution_cpp`: JTC and topic adapters
 - RViz thin-cylinder path + start/goal markers
 - Optional Franka `RobotModel` via `robot_state_publisher`
+- Translucent ghost trajectory replay (`preview_replay`)
+- Scene object markers for `add_object`
 - Kinematic fake JTC for Franka/tickbot (`tools/fake_jtc.py`)
 
 Not included (next steps):

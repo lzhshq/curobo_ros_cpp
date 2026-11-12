@@ -8,8 +8,8 @@ from launch_ros.actions import Node
 
 
 def _launch_setup(context, *args, **kwargs):
-    config = LaunchConfiguration('config').perform(context)
-    parameters = [config]
+    planner_config = LaunchConfiguration('planner_config').perform(context)
+    parameters = [planner_config]
 
     overrides = {}
     for name in ('artifact_dir', 'artifact_root', 'robot', 'tool_frame', 'base_frame',
@@ -41,8 +41,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            'config', default_value=default_config,
-            description='Parameter YAML; defaults to the installed config/planner.yaml'),
+            'planner_config', default_value=default_config,
+            description='Planner parameter YAML; defaults to the installed config/planner.yaml'),
         DeclareLaunchArgument(
             'artifact_dir', default_value='',
             description='Override artifact_dir from the YAML'),

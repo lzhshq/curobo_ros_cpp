@@ -104,6 +104,9 @@ No C++ changes and no manual `joint_name_map` / `ghost_joint_name_map` strings.
 | `show_ghost` | `true` | ghost replay |
 | `ghost_time_scale` | `0.2` | ghost speed |
 | `ghost_loop` | `true` | loop red-to-green |
+| `planner_config` | installed `planner.yaml` | planner tuning override |
+| `executor_config` | installed `executor.yaml` | executor tuning override |
+| `rviz_config` | installed `planner.rviz` | RViz layout override |
 
 ## Low-level launches
 

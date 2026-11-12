@@ -137,7 +137,7 @@ curobo_planner:
 
 `artifact_dir` is a construction-time parameter. Changing it with
 `ros2 param set` does **not** reload the artifact; restart the node (or switch
-`config:=...`) to change robots.
+`planner_config:=...`) to change robots.
 
 Startup logs the artifact, DOF, joint names, and tool frames. `node_is_available`
 becomes `true` after initialization.
@@ -244,7 +244,7 @@ Start it with a robot config:
 
 ```bash
 ros2 launch curobo_execution_cpp execution.launch.py \
-  config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_execution_cpp/config/robots/ar5.yaml
+  executor_config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_execution_cpp/config/robots/ar5.yaml
 ```
 
 Then, after a successful `PlanPose`:
@@ -356,7 +356,7 @@ The fake Franka chain uses four terminals:
 |---|---|---|
 | 1 | `fake_franka.launch.py` | fake plant: JTC action + `/joint_states` |
 | 2 | `planner.launch.py robot:=franka` | cuRobo planning; `PlanPose`, `/planned_path` |
-| 3 | `execution.launch.py config:=franka.yaml` | sends the cached plan to JTC |
+| 3 | `execution.launch.py executor_config:=franka.yaml` | sends the cached plan to JTC |
 | 4 | `call_plan.py` + `execute_latest` | user trigger; optional RViz |
 
 ```bash
@@ -374,7 +374,7 @@ ros2 launch curobo_planner_cpp planner.launch.py \
 
 # terminal 3
 ros2 launch curobo_execution_cpp execution.launch.py \
-  config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_execution_cpp/config/robots/franka.yaml
+  executor_config:=$HOME/curobo_ros_ws/src/curobo_ros_cpp/curobo_execution_cpp/config/robots/franka.yaml
 ```
 
 Plan and execute:

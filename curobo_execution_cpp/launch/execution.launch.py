@@ -8,7 +8,7 @@ from launch_ros.actions import Node
 
 
 def _launch_setup(context, *args, **kwargs):
-    parameters = [LaunchConfiguration('config').perform(context)]
+    parameters = [LaunchConfiguration('executor_config').perform(context)]
 
     overrides = {}
     for name in ('adapter', 'action'):
@@ -50,7 +50,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            'config', default_value=default_config,
+            'executor_config', default_value=default_config,
             description='Executor parameter YAML'),
         DeclareLaunchArgument(
             'adapter', default_value='',

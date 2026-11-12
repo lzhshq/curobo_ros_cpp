@@ -31,6 +31,9 @@ def _launch_setup(context, *args, **kwargs):
     show_ghost = LaunchConfiguration("show_ghost").perform(context)
     ghost_time_scale = LaunchConfiguration("ghost_time_scale").perform(context)
     ghost_loop = LaunchConfiguration("ghost_loop").perform(context)
+    planner_config = LaunchConfiguration("planner_config").perform(context)
+    executor_config = LaunchConfiguration("executor_config").perform(context)
+    rviz_config = LaunchConfiguration("rviz_config").perform(context)
 
     config = load_robot_config(robot, artifact_root=artifact_root or None)
     print(
@@ -58,15 +61,17 @@ def _launch_setup(context, *args, **kwargs):
         "launch",
         "planner.launch.py",
     )
+    planner_arguments = {
+        "artifact_dir": str(config.artifact_dir),
+        "base_frame": config.base_frame,
+        "tool_frame": config.tool_frame,
+        "joint_name_map": config.controller_to_artifact,
+        "robot": config.name,
+    }
+    planner_arguments["planner_config"] = planner_config
     actions.append(IncludeLaunchDescription(
         PythonLaunchDescriptionSource(planner_launch),
-        launch_arguments={
-            "artifact_dir": str(config.artifact_dir),
-            "base_frame": config.base_frame,
-            "tool_frame": config.tool_frame,
-            "joint_name_map": config.controller_to_artifact,
-            "robot": config.name,
-        }.items(),
+        launch_arguments=planner_arguments.items(),
     ))
 
     execution_launch = os.path.join(
@@ -82,6 +87,7 @@ def _launch_setup(context, *args, **kwargs):
     for key in ("time_scale", "goal_tolerance", "goal_time_tolerance"):
         if key in config.execution:
             execution_arguments[key] = str(config.execution[key])
+    execution_arguments["executor_config"] = executor_config
     actions.append(IncludeLaunchDescription(
         PythonLaunchDescriptionSource(execution_launch),
         launch_arguments=execution_arguments.items(),
@@ -93,17 +99,19 @@ def _launch_setup(context, *args, **kwargs):
             "launch",
             "rviz.launch.py",
         )
+        rviz_arguments = {
+            "base_frame": config.base_frame,
+            "robot_description": str(config.urdf),
+            "show_robot": show_robot,
+            "show_ghost": show_ghost,
+            "ghost_time_scale": ghost_time_scale,
+            "ghost_loop": ghost_loop,
+            "ghost_joint_name_map": config.artifact_to_urdf,
+        }
+        rviz_arguments["rviz_config"] = rviz_config
         actions.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(rviz_launch),
-            launch_arguments={
-                "base_frame": config.base_frame,
-                "robot_description": str(config.urdf),
-                "show_robot": show_robot,
-                "show_ghost": show_ghost,
-                "ghost_time_scale": ghost_time_scale,
-                "ghost_loop": ghost_loop,
-                "ghost_joint_name_map": config.artifact_to_urdf,
-            }.items(),
+            launch_arguments=rviz_arguments.items(),
             condition=IfCondition(LaunchConfiguration("rviz")),
         ))
 
@@ -111,6 +119,13 @@ def _launch_setup(context, *args, **kwargs):
 
 
 def generate_launch_description():
+    planner_config = os.path.join(
+        get_package_share_directory("curobo_planner_cpp"), "config", "planner.yaml")
+    executor_config = os.path.join(
+        get_package_share_directory("curobo_execution_cpp"), "config", "executor.yaml")
+    rviz_config = os.path.join(
+        get_package_share_directory("curobo_planner_cpp"), "rviz", "planner.rviz")
+
     return LaunchDescription([
         DeclareLaunchArgument(
             "robot", default_value="ar5",
@@ -121,6 +136,15 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "fake", default_value="auto",
             description="auto/true/false; auto starts fake_launch when present"),
+        DeclareLaunchArgument(
+            "planner_config", default_value=planner_config,
+            description="Planner parameter YAML"),
+        DeclareLaunchArgument(
+            "executor_config", default_value=executor_config,
+            description="Executor parameter YAML"),
+        DeclareLaunchArgument(
+            "rviz_config", default_value=rviz_config,
+            description="RViz config"),
         DeclareLaunchArgument(
             "rviz", default_value="true",
             description="Start RViz and the ghost preview"),

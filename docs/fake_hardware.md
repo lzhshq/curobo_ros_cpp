@@ -48,7 +48,7 @@ Terminal 3:
 
 ```bash
 ros2 launch curobo_execution_cpp execution.launch.py \
-  config:=$HOME/curobo_ros_cpp/curobo_execution_cpp/config/robots/franka.yaml
+  executor_config:=$HOME/curobo_ros_cpp/curobo_execution_cpp/config/robots/franka.yaml
 ```
 
 Terminal 4 (plan from the current home, then execute):
@@ -89,7 +89,7 @@ ros2 launch curobo_planner_cpp planner.launch.py \
   joint_name_map:=joint1:j1,joint2:j2,joint3:j3,joint4:j4,joint5:j5,joint6:j6,joint7:j7
 ```
 
-The executor uses `config:=.../config/robots/ar5.yaml`; its `joint_names`
+The executor uses `executor_config:=.../config/robots/ar5.yaml`; its `joint_names`
 maps in the opposite direction (artifact -> controller).
 
 Important: the AR5 artifact uses `j1..j7`, while the JTC uses

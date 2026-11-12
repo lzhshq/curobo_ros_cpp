@@ -10,7 +10,7 @@ from launch_ros.actions import Node
 
 
 def _make_rviz(context, *args, **kwargs):
-    config = LaunchConfiguration('config').perform(context)
+    config = LaunchConfiguration('rviz_config').perform(context)
     base_frame = LaunchConfiguration('base_frame').perform(context)
     robot_description = LaunchConfiguration('robot_description').perform(context)
     show_robot = LaunchConfiguration('show_robot').perform(context).lower() in (
@@ -113,7 +113,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            'config', default_value=default_config,
+            'rviz_config', default_value=default_config,
             description='RViz config file'),
         DeclareLaunchArgument(
             'base_frame', default_value='right_arm_base',

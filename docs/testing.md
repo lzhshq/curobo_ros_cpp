@@ -69,7 +69,7 @@ ros2 launch curobo_execution_cpp fake_franka.launch.py
 ros2 launch curobo_planner_cpp planner.launch.py robot:=franka base_frame:=panda_link0
 # terminal 3
 ros2 launch curobo_execution_cpp execution.launch.py \
-  config:=$HOME/curobo_ros_cpp/curobo_execution_cpp/config/robots/franka.yaml
+  executor_config:=$HOME/curobo_ros_cpp/curobo_execution_cpp/config/robots/franka.yaml
 # terminal 4
 python3 ~/curobo_ros_cpp/scripts/call_plan.py --target 0.2872 0.0 0.5223 0.995 -0.0073 -0.0998 0.0007
 ros2 service call /curobo_executor/execute_latest std_srvs/srv/Trigger

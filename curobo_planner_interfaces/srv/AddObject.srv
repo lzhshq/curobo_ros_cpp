@@ -1,0 +1,15 @@
+int8 CUBOID=0
+int8 SPHERE=1
+int8 CAPSULE=2
+int8 CYLINDER=3
+int8 MESH=4
+
+int8 type
+string name
+geometry_msgs/Pose pose
+geometry_msgs/Vector3 dimensions
+
+---
+
+bool success
+string message

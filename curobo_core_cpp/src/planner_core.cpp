@@ -4,7 +4,9 @@
 
 #include <cuda_runtime_api.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <stdexcept>
 #include <utility>
@@ -67,6 +69,139 @@ std::string join_names(const std::vector<std::string>& names) {
   return result;
 }
 
+bool finite_positive(float value) { return std::isfinite(value) && value > 0.0F; }
+
+bool validate_object(ObjectSpec& object, std::string& error) {
+  if (object.name.empty()) {
+    error = "object name must not be empty";
+    return false;
+  }
+
+  const float norm = std::sqrt(object.quaternion[0] * object.quaternion[0] +
+                               object.quaternion[1] * object.quaternion[1] +
+                               object.quaternion[2] * object.quaternion[2] +
+                               object.quaternion[3] * object.quaternion[3]);
+  if (!std::isfinite(norm) || norm < 1e-9F) {
+    error = "object pose quaternion must be finite and non-zero";
+    return false;
+  }
+  for (float& value : object.quaternion) {
+    value /= norm;
+  }
+
+  switch (object.type) {
+    case ObjectType::CUBOID:
+      if (!finite_positive(object.dimensions[0]) ||
+          !finite_positive(object.dimensions[1]) ||
+          !finite_positive(object.dimensions[2])) {
+        error = "CUBOID dimensions must be positive [dx,dy,dz]";
+        return false;
+      }
+      break;
+    case ObjectType::SPHERE:
+      if (!finite_positive(object.dimensions[0])) {
+        error = "SPHERE dimensions.x (radius) must be positive";
+        return false;
+      }
+      break;
+    case ObjectType::CAPSULE:
+    case ObjectType::CYLINDER:
+      if (!finite_positive(object.dimensions[0]) ||
+          !finite_positive(object.dimensions[1])) {
+        error = "CAPSULE/CYLINDER dimensions must be positive [radius,height]";
+        return false;
+      }
+      break;
+    case ObjectType::MESH:
+      error = "MESH is not supported in v0.2";
+      return false;
+    default:
+      error = "unknown object type";
+      return false;
+  }
+  return true;
+}
+
+bool add_spec_to_scene(curobo::robot::Scene& scene, const ObjectSpec& object,
+                       const PlannerConfig& config, std::string& error) {
+  curobo::robot::Pose pose;
+  pose.position = object.position;
+  pose.quaternion = object.quaternion;
+
+  curobo::robot::ObstacleHandle handle;
+  switch (object.type) {
+    case ObjectType::CUBOID: {
+      if (scene.obstacle_count(curobo::robot::ObstacleType::CUBOID) >= config.max_cuboids) {
+        error = "cuboid capacity exceeded (scene_max_cuboids=" +
+                std::to_string(config.max_cuboids) + ")";
+        return false;
+      }
+      curobo::robot::Cuboid cuboid;
+      cuboid.name = object.name;
+      cuboid.pose = pose;
+      cuboid.dimensions = object.dimensions;
+      handle = scene.add_cuboid(cuboid);
+      break;
+    }
+    case ObjectType::SPHERE: {
+      if (scene.obstacle_count(curobo::robot::ObstacleType::CAPSULE) +
+              scene.obstacle_count(curobo::robot::ObstacleType::SPHERE) >=
+          config.max_capsules) {
+        error = "sphere capacity exceeded (scene_max_capsules=" +
+                std::to_string(config.max_capsules) + ")";
+        return false;
+      }
+      curobo::robot::Sphere sphere;
+      sphere.name = object.name;
+      sphere.pose = pose;
+      sphere.radius = object.dimensions[0];
+      handle = scene.add_sphere(sphere);
+      break;
+    }
+    case ObjectType::CAPSULE: {
+      if (scene.obstacle_count(curobo::robot::ObstacleType::CAPSULE) +
+              scene.obstacle_count(curobo::robot::ObstacleType::SPHERE) >=
+          config.max_capsules) {
+        error = "capsule capacity exceeded (scene_max_capsules=" +
+                std::to_string(config.max_capsules) + ")";
+        return false;
+      }
+      curobo::robot::Capsule capsule;
+      capsule.name = object.name;
+      capsule.pose = pose;
+      capsule.base = {0.0F, 0.0F, 0.0F};
+      capsule.tip = {0.0F, 0.0F, object.dimensions[1]};
+      capsule.radius = object.dimensions[0];
+      handle = scene.add_capsule(capsule);
+      break;
+    }
+    case ObjectType::CYLINDER: {
+      if (scene.obstacle_count(curobo::robot::ObstacleType::CYLINDER) >=
+          config.max_cylinders) {
+        error = "cylinder capacity exceeded (scene_max_cylinders=" +
+                std::to_string(config.max_cylinders) + ")";
+        return false;
+      }
+      curobo::robot::Cylinder cylinder;
+      cylinder.name = object.name;
+      cylinder.pose = pose;
+      cylinder.radius = object.dimensions[0];
+      cylinder.height = object.dimensions[1];
+      handle = scene.add_cylinder(cylinder);
+      break;
+    }
+    default:
+      error = "MESH is not supported in v0.2";
+      return false;
+  }
+
+  if (!handle.valid()) {
+    error = "Scene rejected object '" + object.name + "'";
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 
 struct PlannerCore::Impl {
@@ -104,8 +239,25 @@ struct PlannerCore::Impl {
   curobo::robot::MotionPlanningInfo planning_info{};
   std::vector<std::string> joint_names;
   std::vector<std::string> tool_frames;
+  std::vector<ObjectSpec> objects;
   int tool_index = 0;
   bool initialized = false;
+
+  bool rebuild_scene(std::string& error) {
+    try {
+      scene->clear();
+      for (const auto& object : objects) {
+        if (!add_spec_to_scene(*scene, object, config, error)) {
+          scene->clear();
+          return false;
+        }
+      }
+      return true;
+    } catch (const std::exception& exception) {
+      error = std::string("scene rebuild failed: ") + exception.what();
+      return false;
+    }
+  }
 
   int num_dof = 0;
   int num_knots = 0;
@@ -418,6 +570,73 @@ PlanResult PlannerCore::plan_pose(const PlanRequest& request) {
     result.message = std::string("plan_pose exception: ") + exception.what();
     return result;
   }
+}
+
+bool PlannerCore::add_object(const ObjectSpec& object, std::string& error) {
+  ObjectSpec normalized = object;
+  if (!validate_object(normalized, error)) {
+    return false;
+  }
+  const auto duplicate = std::find_if(
+      impl_->objects.begin(), impl_->objects.end(),
+      [&](const ObjectSpec& existing) { return existing.name == normalized.name; });
+  if (duplicate != impl_->objects.end()) {
+    error = "object '" + normalized.name + "' already exists";
+    return false;
+  }
+
+  impl_->objects.push_back(normalized);
+  if (!impl_->rebuild_scene(error)) {
+    impl_->objects.pop_back();
+    std::string ignored;
+    impl_->rebuild_scene(ignored);
+    return false;
+  }
+  return true;
+}
+
+bool PlannerCore::remove_object(const std::string& name, std::string& error) {
+  const auto it = std::find_if(
+      impl_->objects.begin(), impl_->objects.end(),
+      [&](const ObjectSpec& object) { return object.name == name; });
+  if (it == impl_->objects.end()) {
+    error = "object '" + name + "' not found";
+    return false;
+  }
+
+  const ObjectSpec removed = *it;
+  impl_->objects.erase(it);
+  if (!impl_->rebuild_scene(error)) {
+    impl_->objects.push_back(removed);
+    std::string ignored;
+    impl_->rebuild_scene(ignored);
+    return false;
+  }
+  return true;
+}
+
+bool PlannerCore::clear_objects(std::string& error) {
+  try {
+    impl_->objects.clear();
+    impl_->scene->clear();
+    return true;
+  } catch (const std::exception& exception) {
+    error = std::string("clear_objects failed: ") + exception.what();
+    return false;
+  }
+}
+
+std::vector<std::string> PlannerCore::object_names() const {
+  std::vector<std::string> names;
+  names.reserve(impl_->objects.size());
+  for (const auto& object : impl_->objects) {
+    names.push_back(object.name);
+  }
+  return names;
+}
+
+int PlannerCore::object_count() const {
+  return static_cast<int>(impl_->objects.size());
 }
 
 const std::vector<std::string>& PlannerCore::joint_names() const {

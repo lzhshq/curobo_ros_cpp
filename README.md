@@ -25,8 +25,8 @@ robot-specific model. A robot is selected by an exported artifact directory.
 | Package | Role |
 |---|---|
 | `curobo_core_cpp` | ROS-free planning library (`PlannerCore`) |
-| `curobo_planner_cpp` | Thin `rclcpp` node + `PlanPose` service + `planned_trajectory` publisher |
-| `curobo_planner_interfaces` | Minimal `PlanPose.srv` (no nav2 dependency) |
+| `curobo_planner_cpp` | Thin `rclcpp` node + `PlanPose`/scene services + `planned_trajectory` publisher |
+| `curobo_planner_interfaces` | Minimal `PlanPose`, `AddObject`, `RemoveObject`, `ClearObjects` services (no nav2 dependency) |
 
 `curobo_msgs` is intentionally not required: its `GetVoxelGrid.srv` depends on
 `nav2_msgs`, which a planning-only node does not need.
@@ -147,6 +147,60 @@ python3 scripts/call_plan.py \
   --start 0 0 0 0.74175 0 0 0
 ```
 
+## Scene services (v0.2)
+
+The planner owns one `Scene` with fixed capacities. Obstacles are expressed in
+the artifact base frame, using `geometry_msgs/Pose` (xyzw) and
+`geometry_msgs/Vector3`.
+
+| Type | `dimensions` |
+|---|---|
+| `CUBOID` (0) | full extents `[dx, dy, dz]` |
+| `SPHERE` (1) | `[radius, _, _]` |
+| `CAPSULE` (2) | `[radius, height, _]` |
+| `CYLINDER` (3) | `[radius, height, _]` |
+| `MESH` (4) | not supported in v0.2 |
+
+Add a table:
+
+```bash
+ros2 service call /curobo_planner/add_object   curobo_planner_interfaces/srv/AddObject   "{type: 0, name: 'table',
+    pose: {position: {x: 0.5, y: 0.0, z: 0.1}, orientation: {w: 1.0}},
+    dimensions: {x: 0.8, y: 1.0, z: 0.05}}"
+```
+
+Remove it:
+
+```bash
+ros2 service call /curobo_planner/remove_object   curobo_planner_interfaces/srv/RemoveObject "{name: 'table'}"
+```
+
+Clear everything:
+
+```bash
+ros2 service call /curobo_planner/clear_objects   curobo_planner_interfaces/srv/ClearObjects "{}"
+```
+
+- Adding/removing updates the same `Scene`; the planner is not rebuilt.
+- Scene mutation and `PlanPose` are serialized by one mutex in the node.
+- Adding an object at the goal makes `PlanPose` fail; removing it restores success.
+- Duplicate names, non-positive dimensions, unknown types, `MESH`, and capacity
+  overflow return `success=false` with a message.
+
+Run the scene regression without ROS:
+
+```bash
+./build/curobo_core_cpp/scene_smoke /path/to/artifact
+```
+
+V0.2 verification (same binary, two artifacts):
+
+```text
+tickbot: 24/24 checks passed, 0 failures
+franka:  24/24 checks passed, 0 failures
+ROS:     add_object -> PlanPose failed -> remove_object -> PlanPose succeeded
+```
+
 ## Parameters
 
 | Parameter | Default | Meaning |
@@ -159,27 +213,32 @@ python3 scripts/call_plan.py \
 | `max_attempts` | `10` | `PoseMotionPlanningRequest::max_attempts` |
 | `enable_graph_attempt` | `1` | RRT fallback attempt index |
 | `outer_iterations` | `2` | TrajOpt initial solve/check passes |
-| `scene_max_cuboids` | `8` | Scene capacity; no scene editor in v0.1 |
+| `scene_max_cuboids` | `8` | Cuboid capacity |
+| `scene_max_capsules` | `8` | Capsule + sphere capacity |
+| `scene_max_cylinders` | `8` | Cylinder capacity |
 | `joint_states_topic` | `~/joint_states` | Start-state source |
 | `publish_trajectory` | `true` | Publish `~/planned_trajectory` |
 
 Path resolution order: `artifact_dir` → `artifact_root/robot` → error.
 
-## Scope (v0.1)
+## Scope (v0.2)
 
 Included:
 
 - One robot artifact, one `MotionPlanner`, one `plan_pose` path
 - Joint-name-aware start state
 - Executable trajectory from `timeopt_trajectory()` (padding trimmed)
-- Generic `PlanPose` service and `JointTrajectory` output
+- `PlanPose` service and `JointTrajectory` output
+- Primitive scene: `CUBOID`, `SPHERE`, `CAPSULE`, `CYLINDER`
+- `AddObject` / `RemoveObject` / `ClearObjects` services
 
 Not included (next steps):
 
+- `MESH` / Warp backend
 - `target_poses` / `target_joint_positions`
-- Scene obstacles / `add_object`
+- TF transforms for object poses
 - IK/FK services
-- RViz path markers
+- RViz path markers / ghost robot
 - Execution / FPC / JTC
 - MPC (`curobo_mpc_cpp` will be a separate package)
 
@@ -188,7 +247,7 @@ Not included (next steps):
 - Artifacts are GPU-architecture specific (`sm_89` here). Re-export for another GPU.
 - Locked joints are fixed at export time.
 - The C++ runtime uses internal CUDA graphs; the first request is slower.
-- `PlannerCore` can be unit-tested without ROS; see `curobo_core_cpp/examples/plan_pose_smoke.cpp`.
+- `PlannerCore` can be unit-tested without ROS; see `curobo_core_cpp/examples/plan_pose_smoke.cpp` and `scene_smoke.cpp`.
 
 ## License
 

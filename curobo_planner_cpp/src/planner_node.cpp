@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "curobo_planner_cpp/planner_node.hpp"
 
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <stdexcept>
@@ -33,8 +34,8 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
   this->declare_parameter<int>("enable_graph_attempt", 1);
   this->declare_parameter<int>("outer_iterations", 2);
   this->declare_parameter<int>("scene_max_cuboids", 8);
-  this->declare_parameter<int>("scene_max_capsules", 0);
-  this->declare_parameter<int>("scene_max_cylinders", 0);
+  this->declare_parameter<int>("scene_max_capsules", 8);
+  this->declare_parameter<int>("scene_max_cylinders", 8);
   this->declare_parameter<int>("scene_max_meshes", 0);
   this->declare_parameter<int>("scene_max_voxel_grids", 0);
   this->declare_parameter<int>("scene_max_voxels_per_grid", 0);
@@ -93,11 +94,26 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
       std::bind(&PlannerNode::plan_callback, this, std::placeholders::_1,
                 std::placeholders::_2));
 
+  add_object_srv_ = this->create_service<AddObject>(
+      "~/add_object",
+      std::bind(&PlannerNode::add_object_callback, this, std::placeholders::_1,
+                std::placeholders::_2));
+  remove_object_srv_ = this->create_service<RemoveObject>(
+      "~/remove_object",
+      std::bind(&PlannerNode::remove_object_callback, this, std::placeholders::_1,
+                std::placeholders::_2));
+  clear_objects_srv_ = this->create_service<ClearObjects>(
+      "~/clear_objects",
+      std::bind(&PlannerNode::clear_objects_callback, this, std::placeholders::_1,
+                std::placeholders::_2));
+
   trajectory_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(
       "~/planned_trajectory", 10);
 
   this->set_parameter(rclcpp::Parameter("node_is_available", true));
-  RCLCPP_INFO(this->get_logger(), "Ready: ~/generate_trajectory, ~/planned_trajectory");
+  RCLCPP_INFO(this->get_logger(),
+              "Ready: ~/generate_trajectory, ~/planned_trajectory, "
+              "~/add_object, ~/remove_object, ~/clear_objects");
 }
 
 void PlannerNode::joint_state_callback(
@@ -200,7 +216,11 @@ void PlannerNode::plan_callback(
   plan_request.quaternion = {static_cast<float>(qw / norm), static_cast<float>(qx / norm),
                              static_cast<float>(qy / norm), static_cast<float>(qz / norm)};
 
-  const PlanResult result = core_->plan_pose(plan_request);
+  PlanResult result;
+  {
+    std::lock_guard<std::mutex> lock(plan_mutex_);
+    result = core_->plan_pose(plan_request);
+  }
   response->success = result.success;
   response->message = result.message;
   response->dt = static_cast<double>(result.dt);
@@ -241,6 +261,108 @@ void PlannerNode::plan_callback(
               result.used_rrt ? "true" : "false", result.planning_ms);
 
   publish_trajectory(result);
+}
+
+void PlannerNode::add_object_callback(
+    const std::shared_ptr<AddObject::Request> request,
+    std::shared_ptr<AddObject::Response> response) {
+  ObjectSpec object;
+  object.name = request->name;
+  object.position = {static_cast<float>(request->pose.position.x),
+                     static_cast<float>(request->pose.position.y),
+                     static_cast<float>(request->pose.position.z)};
+  object.dimensions = {static_cast<float>(request->dimensions.x),
+                       static_cast<float>(request->dimensions.y),
+                       static_cast<float>(request->dimensions.z)};
+
+  const double qw = request->pose.orientation.w;
+  const double qx = request->pose.orientation.x;
+  const double qy = request->pose.orientation.y;
+  const double qz = request->pose.orientation.z;
+  const double norm = std::sqrt(qw * qw + qx * qx + qy * qy + qz * qz);
+  if (norm < 1e-9) {
+    response->success = false;
+    response->message = "object pose orientation must be a non-zero quaternion (xyzw)";
+    return;
+  }
+  object.quaternion = {static_cast<float>(qw / norm), static_cast<float>(qx / norm),
+                       static_cast<float>(qy / norm), static_cast<float>(qz / norm)};
+
+  switch (request->type) {
+    case AddObject::Request::CUBOID:
+      object.type = ObjectType::CUBOID;
+      break;
+    case AddObject::Request::SPHERE:
+      object.type = ObjectType::SPHERE;
+      break;
+    case AddObject::Request::CAPSULE:
+      object.type = ObjectType::CAPSULE;
+      break;
+    case AddObject::Request::CYLINDER:
+      object.type = ObjectType::CYLINDER;
+      break;
+    case AddObject::Request::MESH:
+      response->success = false;
+      response->message = "MESH is not supported in v0.2";
+      return;
+    default:
+      response->success = false;
+      response->message = "unknown object type " + std::to_string(request->type);
+      return;
+  }
+
+  std::string error;
+  bool success = false;
+  {
+    std::lock_guard<std::mutex> lock(plan_mutex_);
+    success = core_->add_object(object, error);
+  }
+  response->success = success;
+  response->message = success ? ("object '" + object.name + "' added") : error;
+  if (success) {
+    RCLCPP_INFO(this->get_logger(), "added object '%s'", object.name.c_str());
+  } else {
+    RCLCPP_WARN(this->get_logger(), "add_object failed: %s", error.c_str());
+  }
+}
+
+void PlannerNode::remove_object_callback(
+    const std::shared_ptr<RemoveObject::Request> request,
+    std::shared_ptr<RemoveObject::Response> response) {
+  std::string error;
+  bool success = false;
+  {
+    std::lock_guard<std::mutex> lock(plan_mutex_);
+    success = core_->remove_object(request->name, error);
+  }
+  response->success = success;
+  response->message = success ? ("object '" + request->name + "' removed") : error;
+  if (success) {
+    RCLCPP_INFO(this->get_logger(), "removed object '%s'", request->name.c_str());
+  } else {
+    RCLCPP_WARN(this->get_logger(), "remove_object failed: %s", error.c_str());
+  }
+}
+
+void PlannerNode::clear_objects_callback(
+    const std::shared_ptr<ClearObjects::Request> /*request*/,
+    std::shared_ptr<ClearObjects::Response> response) {
+  std::string error;
+  bool success = false;
+  int count = 0;
+  {
+    std::lock_guard<std::mutex> lock(plan_mutex_);
+    count = core_->object_count();
+    success = core_->clear_objects(error);
+  }
+  response->success = success;
+  response->message = success ? ("cleared " + std::to_string(count) + " objects") : error;
+  response->count = success ? count : core_->object_count();
+  if (success) {
+    RCLCPP_INFO(this->get_logger(), "cleared %d objects", count);
+  } else {
+    RCLCPP_WARN(this->get_logger(), "clear_objects failed: %s", error.c_str());
+  }
 }
 
 void PlannerNode::publish_trajectory(const PlanResult& result) {

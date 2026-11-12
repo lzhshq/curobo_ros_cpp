@@ -21,8 +21,8 @@ curobo_planner:
     outer_iterations: 2
 
     scene_max_cuboids: 8
-    scene_max_capsules: 0
-    scene_max_cylinders: 0
+    scene_max_capsules: 8
+    scene_max_cylinders: 8
     scene_max_meshes: 0
     scene_max_voxel_grids: 0
     scene_max_voxels_per_grid: 0

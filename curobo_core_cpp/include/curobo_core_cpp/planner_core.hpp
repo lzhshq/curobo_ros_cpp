@@ -3,6 +3,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -13,8 +14,8 @@ struct PlannerConfig {
   std::string artifact_dir;
   std::string tool_frame;
   int max_cuboids = 8;
-  int max_capsules = 0;
-  int max_cylinders = 0;
+  int max_capsules = 8;
+  int max_cylinders = 8;
   int max_meshes = 0;
   int max_voxel_grids = 0;
   int max_voxels_per_grid = 0;
@@ -32,6 +33,25 @@ struct PlanRequest {
   std::vector<float> start_position;
   std::vector<float> start_velocity;
   std::vector<float> start_acceleration;
+};
+
+enum class ObjectType : int8_t {
+  CUBOID = 0,
+  SPHERE = 1,
+  CAPSULE = 2,
+  CYLINDER = 3,
+  MESH = 4,
+};
+
+struct ObjectSpec {
+  ObjectType type = ObjectType::CUBOID;
+  std::string name;
+  std::array<float, 3> position{{0.0F, 0.0F, 0.0F}};
+  // wxyz, normalized by add_object().
+  std::array<float, 4> quaternion{{1.0F, 0.0F, 0.0F, 0.0F}};
+  // CUBOID: full extents [dx,dy,dz]; SPHERE: [radius,_,_];
+  // CAPSULE/CYLINDER: [radius,height,_].
+  std::array<float, 3> dimensions{{0.0F, 0.0F, 0.0F}};
 };
 
 struct PlanResult {
@@ -69,6 +89,13 @@ class PlannerCore {
   bool initialize(std::string& error);
 
   PlanResult plan_pose(const PlanRequest& request);
+
+  // Scene mutation. The caller must serialize these calls with plan_pose().
+  bool add_object(const ObjectSpec& object, std::string& error);
+  bool remove_object(const std::string& name, std::string& error);
+  bool clear_objects(std::string& error);
+  std::vector<std::string> object_names() const;
+  int object_count() const;
 
   const std::vector<std::string>& joint_names() const;
   const std::vector<std::string>& tool_frames() const;

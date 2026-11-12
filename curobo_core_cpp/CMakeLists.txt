@@ -44,6 +44,7 @@ set_target_properties(curobo_core_cpp PROPERTIES
 option(BUILD_EXAMPLES "Build curobo_core_cpp examples" ON)
 if(BUILD_EXAMPLES)
   add_executable(plan_pose_smoke examples/plan_pose_smoke.cpp)
+  add_executable(scene_smoke examples/scene_smoke.cpp)
   target_include_directories(plan_pose_smoke PRIVATE
     "${CUROBO_RUNTIME_ROOT}/robot/include")
   target_link_libraries(plan_pose_smoke PRIVATE
@@ -51,6 +52,15 @@ if(BUILD_EXAMPLES)
     "${CUROBO_ROBOT_RUNTIME}"
     CUDA::cudart)
   set_target_properties(plan_pose_smoke PROPERTIES
+    BUILD_RPATH "${CUROBO_RUNTIME_ROOT}/build/robot")
+
+  target_include_directories(scene_smoke PRIVATE
+    "${CUROBO_RUNTIME_ROOT}/robot/include")
+  target_link_libraries(scene_smoke PRIVATE
+    curobo_core_cpp
+    "${CUROBO_ROBOT_RUNTIME}"
+    CUDA::cudart)
+  set_target_properties(scene_smoke PROPERTIES
     BUILD_RPATH "${CUROBO_RUNTIME_ROOT}/build/robot")
 endif()
 

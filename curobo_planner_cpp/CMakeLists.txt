@@ -8,6 +8,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(curobo_planner_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(curobo_core_cpp REQUIRED)
 
@@ -22,6 +23,7 @@ ament_target_dependencies(planner_node
   rclcpp
   curobo_planner_interfaces
   sensor_msgs
+  geometry_msgs
   trajectory_msgs)
 
 target_link_libraries(planner_node

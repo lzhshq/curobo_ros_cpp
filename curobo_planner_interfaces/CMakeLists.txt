@@ -8,6 +8,9 @@ find_package(sensor_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/PlanPose.srv"
+  "srv/AddObject.srv"
+  "srv/RemoveObject.srv"
+  "srv/ClearObjects.srv"
   DEPENDENCIES geometry_msgs sensor_msgs)
 
 ament_export_dependencies(rosidl_default_runtime)

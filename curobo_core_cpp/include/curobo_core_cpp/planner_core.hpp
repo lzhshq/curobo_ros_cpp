@@ -8,6 +8,11 @@
 #include <string>
 #include <vector>
 
+namespace curobo::robot {
+class MotionPlanner;
+class Scene;
+}  // namespace curobo::robot
+
 namespace curobo_ros_cpp {
 
 struct PlannerConfig {
@@ -98,11 +103,19 @@ class PlannerCore {
 
   // Scene mutation. The caller must serialize these calls with plan_pose().
   bool add_object(const ObjectSpec& object, std::string& error);
+  bool update_object_pose(const std::string& name,
+                          const std::array<float, 3>& position,
+                          const std::array<float, 4>& quaternion,
+                          std::string& error);
   bool remove_object(const std::string& name, std::string& error);
   bool clear_objects(std::string& error);
   std::vector<std::string> object_names() const;
   std::vector<ObjectSpec> object_specs() const;
   int object_count() const;
+
+  // Shared planning world. The caller must serialize mutation with planning.
+  curobo::robot::Scene& scene();
+  curobo::robot::MotionPlanner& motion_planner();
 
   // Forward kinematics for the selected tool frame. positions is row-major
   // [num_steps, num_dof]. Returns an empty vector on invalid input.

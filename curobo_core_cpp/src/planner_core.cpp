@@ -5,6 +5,7 @@
 #include <cuda_runtime_api.h>
 
 #include <algorithm>
+#include <map>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -123,12 +124,13 @@ bool validate_object(ObjectSpec& object, std::string& error) {
 }
 
 bool add_spec_to_scene(curobo::robot::Scene& scene, const ObjectSpec& object,
-                       const PlannerConfig& config, std::string& error) {
+                       const PlannerConfig& config,
+                       curobo::robot::ObstacleHandle& handle,
+                       std::string& error) {
   curobo::robot::Pose pose;
   pose.position = object.position;
   pose.quaternion = object.quaternion;
 
-  curobo::robot::ObstacleHandle handle;
   switch (object.type) {
     case ObjectType::CUBOID: {
       if (scene.obstacle_count(curobo::robot::ObstacleType::CUBOID) >= config.max_cuboids) {
@@ -244,17 +246,22 @@ struct PlannerCore::Impl {
   std::vector<std::string> joint_names;
   std::vector<std::string> tool_frames;
   std::vector<ObjectSpec> objects;
+  std::map<std::string, curobo::robot::ObstacleHandle> handles;
   int tool_index = 0;
   bool initialized = false;
 
   bool rebuild_scene(std::string& error) {
     try {
       scene->clear();
+      handles.clear();
       for (const auto& object : objects) {
-        if (!add_spec_to_scene(*scene, object, config, error)) {
+        curobo::robot::ObstacleHandle handle;
+        if (!add_spec_to_scene(*scene, object, config, handle, error)) {
           scene->clear();
+          handles.clear();
           return false;
         }
+        handles[object.name] = handle;
       }
       return true;
     } catch (const std::exception& exception) {
@@ -614,6 +621,53 @@ bool PlannerCore::add_object(const ObjectSpec& object, std::string& error) {
   return true;
 }
 
+bool PlannerCore::update_object_pose(
+    const std::string& name, const std::array<float, 3>& position,
+    const std::array<float, 4>& quaternion, std::string& error) {
+  const auto it = std::find_if(
+      impl_->objects.begin(), impl_->objects.end(),
+      [&](const ObjectSpec& object) { return object.name == name; });
+  if (it == impl_->objects.end()) {
+    error = "object '" + name + "' not found";
+    return false;
+  }
+  if (!std::isfinite(position[0]) || !std::isfinite(position[1]) ||
+      !std::isfinite(position[2])) {
+    error = "object position must be finite";
+    return false;
+  }
+  const float norm = std::sqrt(quaternion[0] * quaternion[0] +
+                               quaternion[1] * quaternion[1] +
+                               quaternion[2] * quaternion[2] +
+                               quaternion[3] * quaternion[3]);
+  if (!std::isfinite(norm) || norm < 1e-9F) {
+    error = "object pose quaternion must be finite and non-zero";
+    return false;
+  }
+  curobo::robot::Pose pose;
+  pose.position = position;
+  for (std::size_t i = 0; i < 4; ++i) {
+    pose.quaternion[i] = quaternion[i] / norm;
+  }
+
+  const auto handle = impl_->handles.find(name);
+  if (handle == impl_->handles.end()) {
+    error = "object '" + name + "' has no scene handle";
+    return false;
+  }
+  const ObjectSpec previous = *it;
+  it->position = pose.position;
+  it->quaternion = pose.quaternion;
+  try {
+    impl_->scene->update_obstacle_pose(handle->second, pose);
+  } catch (const std::exception& exception) {
+    *it = previous;
+    error = std::string("update_object_pose failed: ") + exception.what();
+    return false;
+  }
+  return true;
+}
+
 bool PlannerCore::remove_object(const std::string& name, std::string& error) {
   const auto it = std::find_if(
       impl_->objects.begin(), impl_->objects.end(),
@@ -637,6 +691,7 @@ bool PlannerCore::remove_object(const std::string& name, std::string& error) {
 bool PlannerCore::clear_objects(std::string& error) {
   try {
     impl_->objects.clear();
+    impl_->handles.clear();
     impl_->scene->clear();
     return true;
   } catch (const std::exception& exception) {
@@ -660,6 +715,12 @@ std::vector<ObjectSpec> PlannerCore::object_specs() const {
 
 int PlannerCore::object_count() const {
   return static_cast<int>(impl_->objects.size());
+}
+
+curobo::robot::Scene& PlannerCore::scene() { return *impl_->scene; }
+
+curobo::robot::MotionPlanner& PlannerCore::motion_planner() {
+  return *impl_->planner;
 }
 
 std::vector<ToolPose> PlannerCore::compute_tool_path(

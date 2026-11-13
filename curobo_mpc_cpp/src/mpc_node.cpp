@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "curobo_execution_cpp/execution_adapter.hpp"
+#include "curobo_core_cpp/planner_core.hpp"
 #include "curobo_execution_cpp/jtc_adapter.hpp"
 #include "curobo_execution_cpp/topic_adapter.hpp"
 #include "curobo_robot_runtime/kinematics.h"
@@ -104,6 +105,10 @@ class MpcNode : public rclcpp::Node {
     bat_initial_z_ = this->declare_parameter<double>("bat_initial_z", 0.55);
     planner_distance_threshold_ = this->declare_parameter<double>(
         "planner_distance_threshold", 0.15);
+    far_replan_period_ = this->declare_parameter<double>(
+        "far_replan_period", 1.0);
+    far_replan_min_move_ = this->declare_parameter<double>(
+        "far_replan_min_move", 0.01);
     const double trajectory_dt =
         this->declare_parameter<double>("trajectory_dt", 0.03);
     const auto controller_joints = this->declare_parameter<std::vector<std::string>>(
@@ -113,31 +118,39 @@ class MpcNode : public rclcpp::Node {
     parse_name_map(name_map);
 
     kinematics_ = std::make_unique<curobo::robot::Kinematics>(artifact_dir_);
-    curobo::robot::SceneConfig scene_config;
-    scene_config.max_cuboids = 8;
-    scene_config.max_capsules = 8;
-    scene_config.max_cylinders = 8;
-    scene_ = std::make_unique<curobo::robot::Scene>(scene_config);
+    curobo_ros_cpp::PlannerConfig world_config;
+    world_config.artifact_dir = artifact_dir_;
+    world_config.max_cuboids = 8;
+    world_config.max_capsules = 8;
+    world_config.max_cylinders = 8;
+    world_config.max_meshes = 0;
+    planner_core_ = std::make_unique<curobo_ros_cpp::PlannerCore>(world_config);
+    std::string world_error;
+    if (!planner_core_->initialize(world_error)) {
+      throw std::runtime_error("PlannerCore init failed: " + world_error);
+    }
+    planner_ = &planner_core_->motion_planner();
+    scene_ = &planner_core_->scene();
     {
-      curobo::robot::Capsule bat;
+      curobo_ros_cpp::ObjectSpec bat;
+      bat.type = curobo_ros_cpp::ObjectType::CAPSULE;
       bat.name = "bat";
-      bat.base = {-0.5F * static_cast<float>(bat_length_), 0.0F, 0.0F};
-      bat.tip = {0.5F * static_cast<float>(bat_length_), 0.0F, 0.0F};
-      bat.radius = static_cast<float>(bat_radius_);
-      bat.pose.position = {static_cast<float>(bat_initial_x_),
-                           static_cast<float>(bat_initial_y_),
-                           static_cast<float>(bat_initial_z_)};
-      bat.pose.quaternion = {1.0F, 0.0F, 0.0F, 0.0F};
-      bat_handle_ = scene_->add_capsule(bat);
-      bat_pose_ = bat.pose;
+      bat.position = {static_cast<float>(bat_initial_x_),
+                      static_cast<float>(bat_initial_y_),
+                      static_cast<float>(bat_initial_z_)};
+      // The capsule is local +Z; rotate it onto world +X.
+      bat.quaternion = {0.70710678F, 0.0F, 0.70710678F, 0.0F};
+      bat.dimensions = {static_cast<float>(bat_radius_),
+                        static_cast<float>(bat_length_), 0.0F};
+      if (!planner_core_->add_object(bat, world_error)) {
+        throw std::runtime_error("add bat failed: " + world_error);
+      }
+      bat_pose_.position = bat.position;
+      bat_pose_.quaternion = bat.quaternion;
       has_bat_pose_ = true;
       RCLCPP_INFO(this->get_logger(), "bat capsule added: length=%.2f radius=%.2f",
                   bat_length_, bat_radius_);
     }
-    curobo::robot::MotionPlanningConfig planner_config;
-    planner_config.use_cuda_graph = true;
-    planner_ = std::make_unique<curobo::robot::MotionPlanner>(
-        artifact_dir_, planner_config, scene_.get());
     curobo::robot::MpcConfig mpc_config;
     mpc_config.trajectory_dt = static_cast<float>(trajectory_dt);
     mpc_ = std::make_unique<curobo::robot::MpcController>(*planner_, mpc_config);
@@ -279,6 +292,9 @@ class MpcNode : public rclcpp::Node {
 
     set_status("idle");
     producer_ = std::thread(&MpcNode::producer_loop, this);
+    far_replan_timer_ = this->create_wall_timer(
+        std::chrono::duration<double>(std::max(far_replan_period_, 0.1)),
+        std::bind(&MpcNode::far_replan_callback, this));
     RCLCPP_INFO(this->get_logger(),
                 "MPC producer/consumer: dof=%d knots=%d steps=%d control=%.1f Hz "
                 "publish=%.1f Hz interval=%.3f s knots_per_interval=%d adapter=%s",
@@ -391,8 +407,8 @@ class MpcNode : public rclcpp::Node {
                      static_cast<float>(message->pose.position.z)};
     pose.position[0] = static_cast<float>(bat_initial_x_);
     pose.position[1] = static_cast<float>(bat_initial_y_);
-    pose.quaternion = {static_cast<float>(o.w / norm), static_cast<float>(o.x / norm),
-                       static_cast<float>(o.y / norm), static_cast<float>(o.z / norm)};
+    // Bat capsule's local axis is Z; keep it rotated onto world X.
+    pose.quaternion = {0.70710678F, 0.0F, 0.70710678F, 0.0F};
     std::lock_guard<std::mutex> lock(data_mutex_);
     bat_pose_ = pose;
     has_bat_pose_ = true;
@@ -436,8 +452,8 @@ class MpcNode : public rclcpp::Node {
     }
     std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
     planner_mode_ = false;
-    if (has_bat_pose_ && bat_handle_.valid()) {
-      scene_->update_obstacle_pose(bat_handle_, bat_pose_);
+    if (has_bat_pose_) {
+      sync_bat_scene(bat_pose_);
     }
     check_cuda(cudaMemcpy(d_goal_pos_, positions.data(), positions.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "goal pos");
@@ -519,6 +535,8 @@ class MpcNode : public rclcpp::Node {
           planner_mode_ = true;
           active_goal_ = false;
           proposal_fresh_ = false;
+          last_replan_pose_ = bat_pose_;
+          has_last_replan_pose_ = has_bat_pose_;
           set_status("planner mode");
           RCLCPP_INFO(this->get_logger(),
                       "far target (%.2f m): executing planner trajectory", distance);
@@ -586,6 +604,105 @@ class MpcNode : public rclcpp::Node {
     set_status("goal received");
   }
 
+  void sync_bat_scene(const curobo::robot::Pose& pose) {
+    std::string error;
+    if (!planner_core_->update_object_pose("bat", pose.position, pose.quaternion, error)) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                           "bat scene update failed: %s", error.c_str());
+    }
+  }
+
+  bool plan_far_locked(const std::vector<float>& q, const char* source) {
+    if (has_bat_pose_) {
+      sync_bat_scene(bat_pose_);
+    }
+    check_cuda(cudaMemcpy(d_q_, q.data(), q.size() * sizeof(float),
+                          cudaMemcpyHostToDevice), "far replan current");
+    curobo::robot::PoseMotionPlanningRequest request;
+    request.current_position = d_q_;
+    request.goal_positions = d_goal_pos_;
+    request.goal_quaternions = d_goal_quat_;
+    request.optimized_knots = d_plan_knots_;
+    request.trajectory_position = d_plan_q_;
+    request.trajectory_velocity = d_plan_v_;
+    request.trajectory_acceleration = d_plan_a_;
+    request.trajectory_jerk = d_plan_j_;
+    request.success = d_plan_success_;
+    request.used_rrt = d_plan_used_rrt_;
+    request.rrt_iterations = d_plan_rrt_iters_;
+    request.cost = d_plan_cost_;
+    request.collision_cost = d_plan_collision_;
+    request.trajectory_dt = d_plan_dt_;
+    request.position_error = d_plan_position_error_;
+    request.orientation_error = d_plan_orientation_error_;
+    planner_->plan_pose(request);
+    uint8_t ok = 0;
+    check_cuda(cudaMemcpy(&ok, d_plan_success_, sizeof(uint8_t), cudaMemcpyDeviceToHost),
+               "far replan success");
+    if (ok == 0) {
+      RCLCPP_WARN(this->get_logger(), "far replan %s failed", source);
+      return false;
+    }
+    std::vector<float> plan_positions(static_cast<std::size_t>(steps_) * dof_);
+    float plan_dt = 0.0F;
+    check_cuda(cudaMemcpy(plan_positions.data(), d_plan_q_,
+                          plan_positions.size() * sizeof(float), cudaMemcpyDeviceToHost),
+               "far replan positions");
+    check_cuda(cudaMemcpy(&plan_dt, d_plan_dt_, sizeof(float), cudaMemcpyDeviceToHost),
+               "far replan dt");
+    trajectory_msgs::msg::JointTrajectory trajectory;
+    trajectory.header.stamp = this->now();
+    trajectory.joint_names = controller_names_;
+    for (int i = 0; i < steps_; ++i) {
+      trajectory_msgs::msg::JointTrajectoryPoint point;
+      point.positions.resize(controller_source_.size());
+      for (std::size_t j = 0; j < controller_source_.size(); ++j) {
+        point.positions[j] = plan_positions[static_cast<std::size_t>(i) * dof_ +
+                                            controller_source_[j]];
+      }
+      set_duration(point.time_from_start, static_cast<double>(i) * plan_dt);
+      trajectory.points.push_back(std::move(point));
+    }
+    std::string error;
+    if (!adapter_->send(trajectory, error)) {
+      RCLCPP_WARN(this->get_logger(), "far replan send failed: %s", error.c_str());
+      return false;
+    }
+    planner_mode_ = true;
+    active_goal_ = false;
+    proposal_fresh_ = false;
+    set_status("planner replan");
+    RCLCPP_INFO(this->get_logger(), "far replan %s sent", source);
+    return true;
+  }
+
+  void far_replan_callback() {
+    std::vector<float> q;
+    if (!snapshot_state(q)) return;
+    curobo::robot::Pose bat_pose;
+    bool has_bat = false;
+    {
+      std::lock_guard<std::mutex> data_lock(data_mutex_);
+      bat_pose = bat_pose_;
+      has_bat = has_bat_pose_;
+    }
+    std::lock_guard<std::mutex> lock(mpc_mutex_);
+    if (!planner_mode_) return;
+    if (has_bat && has_last_replan_pose_) {
+      const float dx = bat_pose.position[0] - last_replan_pose_.position[0];
+      const float dy = bat_pose.position[1] - last_replan_pose_.position[1];
+      const float dz = bat_pose.position[2] - last_replan_pose_.position[2];
+      if (std::sqrt(dx * dx + dy * dy + dz * dz) <
+          static_cast<float>(far_replan_min_move_)) {
+        return;
+      }
+    }
+    if (plan_far_locked(q, "dynamic scene")) {
+      last_replan_pose_ = bat_pose;
+      has_last_replan_pose_ = true;
+    }
+  }
+
   void producer_loop() {
     const auto period = std::chrono::duration<double>(1.0 / std::max(control_rate_, 1.0));
     auto next = std::chrono::steady_clock::now();
@@ -622,8 +739,8 @@ class MpcNode : public rclcpp::Node {
       if (active) {
         try {
           std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
-          if (has_bat && bat_handle_.valid()) {
-            scene_->update_obstacle_pose(bat_handle_, bat_pose);
+          if (has_bat) {
+            sync_bat_scene(bat_pose);
           }
           std::vector<float> zero(static_cast<std::size_t>(dof_), 0.0F);
           check_cuda(cudaMemcpy(d_q_, q.data(), q.size() * sizeof(float),
@@ -852,8 +969,9 @@ class MpcNode : public rclcpp::Node {
   int knots_ = 0;
 
   std::unique_ptr<curobo::robot::Kinematics> kinematics_;
-  std::unique_ptr<curobo::robot::Scene> scene_;
-  std::unique_ptr<curobo::robot::MotionPlanner> planner_;
+  std::unique_ptr<curobo_ros_cpp::PlannerCore> planner_core_;
+  curobo::robot::Scene* scene_ = nullptr;
+  curobo::robot::MotionPlanner* planner_ = nullptr;
   std::unique_ptr<curobo::robot::MpcController> mpc_;
   std::unique_ptr<curobo::robot::InverseKinematics> ik_;
 
@@ -865,6 +983,7 @@ class MpcNode : public rclcpp::Node {
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr bat_sub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_srv_;
   rclcpp::TimerBase::SharedPtr accept_timer_;
+  rclcpp::TimerBase::SharedPtr far_replan_timer_;
   std::thread producer_;
   std::atomic<bool> running_{true};
 
@@ -882,8 +1001,11 @@ class MpcNode : public rclcpp::Node {
   bool has_bat_pose_ = false;
   bool planner_mode_ = false;
   double planner_distance_threshold_ = 0.15;
+  double far_replan_period_ = 1.0;
+  double far_replan_min_move_ = 0.01;
+  curobo::robot::Pose last_replan_pose_;
+  bool has_last_replan_pose_ = false;
   curobo::robot::Pose bat_pose_;
-  curobo::robot::ObstacleHandle bat_handle_;
   std::chrono::steady_clock::time_point last_state_time_{};
 
   bool active_goal_ = false;

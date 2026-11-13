@@ -102,6 +102,31 @@ TEST_F(PlannerCoreTest, SceneObjectBlocksGoalThenRemovalRestoresPlan) {
   EXPECT_EQ(core_->object_count(), 0);
 }
 
+TEST_F(PlannerCoreTest, SceneObjectPoseUpdateRestoresPlan) {
+  curobo_ros_cpp::ObjectSpec blocker;
+  blocker.type = curobo_ros_cpp::ObjectType::CUBOID;
+  blocker.name = "moving_blocker";
+  blocker.position = goal_pose_.position;
+  blocker.quaternion = goal_pose_.quaternion;
+  blocker.dimensions = {0.2F, 0.2F, 0.2F};
+
+  std::string error;
+  ASSERT_TRUE(core_->add_object(blocker, error)) << error;
+  EXPECT_FALSE(core_->plan_pose(request()).success);
+
+  auto moved = goal_pose_.position;
+  moved[2] += 0.5F;
+  ASSERT_TRUE(core_->update_object_pose("moving_blocker", moved,
+                                        goal_pose_.quaternion, error)) << error;
+  const auto unblocked = core_->plan_pose(request());
+  EXPECT_TRUE(unblocked.success) << unblocked.message;
+  EXPECT_EQ(core_->object_count(), 1);
+
+  ASSERT_TRUE(core_->update_object_pose("moving_blocker", goal_pose_.position,
+                                        goal_pose_.quaternion, error)) << error;
+  EXPECT_FALSE(core_->plan_pose(request()).success);
+}
+
 TEST_F(PlannerCoreTest, RejectsInvalidSceneObjects) {
   std::string error;
   curobo_ros_cpp::ObjectSpec object;

@@ -2,6 +2,9 @@ curobo_mpc:
   ros__parameters:
     artifact_dir: ""
     trajectory_dt: 0.03
+    planner_distance_threshold: 0.15
+    far_replan_period: 1.0
+    far_replan_min_move: 0.01
     control_rate: 30.0
     command_interval: 0.48
     state_timeout: 0.2

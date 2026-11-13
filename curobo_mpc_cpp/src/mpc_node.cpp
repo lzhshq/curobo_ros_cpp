@@ -98,7 +98,7 @@ class MpcNode : public rclcpp::Node {
         "fault_topic", "/curobo_mpc/fault");
     bat_topic_ = this->declare_parameter<std::string>(
         "bat_topic", "/curobo_demo/bat_pose");
-    bat_length_ = this->declare_parameter<double>("bat_length", 0.6);
+    bat_length_ = this->declare_parameter<double>("bat_length", 0.4);
     bat_radius_ = this->declare_parameter<double>("bat_radius", 0.03);
     bat_initial_x_ = this->declare_parameter<double>("bat_initial_x", 0.45);
     bat_initial_y_ = this->declare_parameter<double>("bat_initial_y", 0.0);

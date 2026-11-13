@@ -10,7 +10,7 @@ curobo_mpc:
     brake_deceleration: 2.0
     fault_topic: /curobo_mpc/fault
     bat_topic: /curobo_demo/bat_pose
-    bat_length: 0.3
+    bat_length: 0.4
     bat_radius: 0.03
     bat_initial_x: 0.30
     bat_initial_y: 0.0

@@ -23,7 +23,7 @@ class BatMarker(Node):
         self.fixed_x = float(self.declare_parameter('x', 0.30).value)
         self.fixed_y = float(self.declare_parameter('y', 0.0).value)
         self.initial_z = float(self.declare_parameter('z', 0.30).value)
-        self.length = float(self.declare_parameter('length', 0.3).value)
+        self.length = float(self.declare_parameter('length', 0.4).value)
         self.radius = float(self.declare_parameter('radius', 0.03).value)
         topic = self.declare_parameter(
             'pose_topic', '/curobo_demo/bat_pose').value

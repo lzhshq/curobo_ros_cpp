@@ -13,6 +13,9 @@ find_package(std_srvs REQUIRED)
 find_package(curobo_core_cpp REQUIRED)
 find_package(curobo_execution_cpp REQUIRED)
 find_package(curobo_planner_interfaces REQUIRED)
+find_package(curobo_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2 REQUIRED)
 find_package(CUDAToolkit 12.3 REQUIRED)
 
 set(CUROBO_RUNTIME_ROOT "" CACHE PATH
@@ -48,7 +51,7 @@ ament_target_dependencies(mpc_node
   sensor_msgs
   std_msgs
   std_srvs
-  curobo_planner_interfaces)
+  curobo_planner_interfaces curobo_msgs tf2_ros tf2)
 target_link_libraries(mpc_node
   curobo_core_cpp::curobo_core_cpp
   curobo_execution_cpp::curobo_execution_adapters
@@ -74,6 +77,10 @@ install(PROGRAMS tools/mpc_regression.py
 install(PROGRAMS tools/circle_target.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME circle_target)
+
+install(PROGRAMS tools/unified_circle_target.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME unified_circle_target)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 ament_package()

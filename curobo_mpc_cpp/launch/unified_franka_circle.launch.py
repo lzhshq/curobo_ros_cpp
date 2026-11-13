@@ -7,7 +7,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 def generate_launch_description():
-    share = get_package_share_directory('curobo_unified_planner_cpp')
+    share = get_package_share_directory('curobo_mpc_cpp')
     artifact = LaunchConfiguration('artifact_dir')
     default = os.environ.get('CUROBO_ARTIFACT_DIR',
         '/home/vitai/curobo-fast/cpp_runtime/robot/artifacts/franka')
@@ -15,11 +15,11 @@ def generate_launch_description():
         DeclareLaunchArgument('artifact_dir', default_value=default),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(
-                share, 'launch', 'unified_franka_mpc.launch.py')),
-            launch_arguments={'artifact_dir': artifact}.items()),
+                share, 'launch', 'franka_mpc_closed_loop.launch.py')),
+            launch_arguments={'artifact_dir': artifact,
+                              'autostart_cycle': 'false'}.items()),
         TimerAction(period=4.0, actions=[Node(
-            package='curobo_unified_planner_cpp',
-            executable='unified_circle_target',
+            package='curobo_mpc_cpp', executable='unified_circle_target',
             name='unified_circle_target', output='screen',
             parameters=[{
                 'center_x': 0.161283, 'center_y': 0.0, 'center_z': 0.637,

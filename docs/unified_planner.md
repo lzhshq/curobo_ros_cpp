@@ -1,7 +1,7 @@
-# Unified planner facade
+# Unified planner (single process)
 
-`curobo_unified_planner_cpp` exposes the official `curobo_ros` MPC interface
-surface while the existing C++ MPC implementation stays behind it.
+The official `curobo_msgs` MPC interface is embedded directly in the
+`curobo_mpc` node. There is no separate facade process.
 
 ## Interfaces
 
@@ -10,55 +10,22 @@ surface while the existing C++ MPC implementation stays behind it.
 /unified_planner/get_planners         curobo_msgs/srv/GetPlanners
 /unified_planner/generate_trajectory  curobo_msgs/srv/TrajectoryGeneration
 /unified_planner/execute_trajectory   curobo_msgs/action/SendTrajectory
+/unified_planner/mpc_goal             geometry_msgs/Pose
 ```
 
-The facade currently supports MPC only:
+The current implementation supports MPC only (`SetPlanner.MPC = 1`).
 
-```text
-SetPlanner.MPC = 1
-```
-
-`generate_trajectory` in MPC mode sets the target and returns success with an
-empty trajectory. `execute_trajectory` starts the live MPC loop and publishes
-`state`, `position_error`, `on_target`, and `hold_count` feedback.
-
-## Run
+## Unified circle entry
 
 ```bash
-ros2 launch curobo_unified_planner_cpp unified_franka_mpc.launch.py
+ros2 launch curobo_mpc_cpp unified_franka_circle.launch.py
 ```
 
-The current implementation translates to the existing MPC node:
+The node itself owns `PlannerCore`, the World, `MpcController`, and the ROS
+interfaces.
 
-```text
-generate_trajectory → /curobo_mpc/goal
-execute_trajectory  → /curobo_mpc/live_goal
-```
+## Status
 
-This is a migration facade, not yet a single-process unified solver.
-
-
-## Official live goal
-
-The facade now exposes:
-
-```text
-/unified_planner/mpc_goal   geometry_msgs/Pose
-```
-
-It is ignored unless an `execute_trajectory` action is active, matching the
-official reactive-controller semantics. `execute_trajectory` also publishes:
-
-```text
-/mpc_goal_marker   visualization_msgs/Marker
-```
-
-## Unified circle demo
-
-```bash
-ros2 launch curobo_unified_planner_cpp unified_franka_circle.launch.py
-```
-
-This starts one `execute_trajectory` action and streams the circle through
-`/unified_planner/mpc_goal`; the MPC node only receives the internal
-`/curobo_mpc/live_goal` translation.
+The services and action server are present in the MPC node. The live
+`mpc_goal` action path is still being debugged; do not treat this as a completed
+unified solver yet.

@@ -24,6 +24,14 @@
 #include "curobo_robot_runtime/mpc.h"
 #include "curobo_robot_runtime/scene.h"
 #include "curobo_planner_interfaces/msg/obstacle_update.hpp"
+#include "curobo_msgs/action/send_trajectory.hpp"
+#include "curobo_msgs/srv/get_planners.hpp"
+#include "curobo_msgs/srv/set_planner.hpp"
+#include "curobo_msgs/srv/trajectory_generation.hpp"
+#include "tf2/convert.h"
+#include "tf2/time.h"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
@@ -74,6 +82,8 @@ void set_duration(builtin_interfaces::msg::Duration& duration, double seconds) {
  */
 class MpcNode : public rclcpp::Node {
  public:
+  using SendTrajectory = curobo_msgs::action::SendTrajectory;
+  using GoalHandle = rclcpp_action::ServerGoalHandle<SendTrajectory>;
   MpcNode() : rclcpp::Node("curobo_mpc") {
     artifact_dir_ = this->declare_parameter<std::string>("artifact_dir", "");
     if (artifact_dir_.empty()) throw std::runtime_error("artifact_dir is required");
@@ -101,6 +111,8 @@ class MpcNode : public rclcpp::Node {
         "world_topic", "/curobo_world/obstacle_update");
     live_goal_topic_ = this->declare_parameter<std::string>(
         "live_goal_topic", "/curobo_mpc/live_goal");
+    base_frame_ = this->declare_parameter<std::string>("base_frame", "panda_link0");
+    tool_frame_ = this->declare_parameter<std::string>("tool_frame", "panda_hand");
     bat_length_ = this->declare_parameter<double>("bat_length", 0.4);
     bat_radius_ = this->declare_parameter<double>("bat_radius", 0.03);
     bat_initial_x_ = this->declare_parameter<double>("bat_initial_x", 0.45);
@@ -268,6 +280,30 @@ class MpcNode : public rclcpp::Node {
     live_goal_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
         live_goal_topic_, 10,
         std::bind(&MpcNode::live_goal_callback, this, std::placeholders::_1));
+    live_goal_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
+        live_goal_topic_, 10);
+    mpc_goal_sub_ = this->create_subscription<geometry_msgs::msg::Pose>(
+        "/unified_planner/mpc_goal", 10,
+        std::bind(&MpcNode::mpc_goal_callback, this, std::placeholders::_1));
+    set_planner_srv_ = this->create_service<curobo_msgs::srv::SetPlanner>(
+        "/unified_planner/set_planner",
+        std::bind(&MpcNode::set_planner_callback, this, std::placeholders::_1,
+                  std::placeholders::_2));
+    get_planners_srv_ = this->create_service<curobo_msgs::srv::GetPlanners>(
+        "/unified_planner/get_planners",
+        std::bind(&MpcNode::get_planners_callback, this, std::placeholders::_1,
+                  std::placeholders::_2));
+    generate_srv_ = this->create_service<curobo_msgs::srv::TrajectoryGeneration>(
+        "/unified_planner/generate_trajectory",
+        std::bind(&MpcNode::generate_trajectory_callback, this, std::placeholders::_1,
+                  std::placeholders::_2));
+    action_server_ = rclcpp_action::create_server<SendTrajectory>(
+        this, "/unified_planner/execute_trajectory",
+        std::bind(&MpcNode::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
+        std::bind(&MpcNode::handle_cancel, this, std::placeholders::_1),
+        std::bind(&MpcNode::handle_accepted, this, std::placeholders::_1));
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
     cancel_srv_ = this->create_service<std_srvs::srv::Trigger>(
         "~/cancel", std::bind(&MpcNode::cancel_callback, this, std::placeholders::_1,
                               std::placeholders::_2));
@@ -1064,6 +1100,120 @@ class MpcNode : public rclcpp::Node {
     set_status("tracking");
   }
 
+  geometry_msgs::msg::PoseStamped make_pose_stamped(
+      const geometry_msgs::msg::Pose& pose) const {
+    geometry_msgs::msg::PoseStamped message;
+    message.header.frame_id = base_frame_;
+    message.header.stamp = this->now();
+    message.pose = pose;
+    return message;
+  }
+
+  void set_planner_callback(
+      const std::shared_ptr<curobo_msgs::srv::SetPlanner::Request> request,
+      std::shared_ptr<curobo_msgs::srv::SetPlanner::Response> response) {
+    if (request->planner_type == curobo_msgs::srv::SetPlanner::Request::MPC) {
+      response->success = true;
+      response->previous_planner = current_planner_;
+      current_planner_ = "Model Predictive Control (MPC)";
+      response->current_planner = current_planner_;
+      response->message = "MPC selected";
+    } else {
+      response->success = false;
+      response->previous_planner = current_planner_;
+      response->current_planner = current_planner_;
+      response->message = "only MPC is implemented";
+    }
+  }
+
+  void get_planners_callback(
+      const std::shared_ptr<curobo_msgs::srv::GetPlanners::Request>,
+      std::shared_ptr<curobo_msgs::srv::GetPlanners::Response> response) {
+    response->planner_names = {"Model Predictive Control (MPC)"};
+    response->planner_ids = {curobo_msgs::srv::SetPlanner::Request::MPC};
+    response->current_planner_name = current_planner_;
+    response->current_planner_id = curobo_msgs::srv::SetPlanner::Request::MPC;
+    response->success = true;
+  }
+
+  void generate_trajectory_callback(
+      const std::shared_ptr<curobo_msgs::srv::TrajectoryGeneration::Request> request,
+      std::shared_ptr<curobo_msgs::srv::TrajectoryGeneration::Response> response) {
+    auto message = std::make_shared<geometry_msgs::msg::PoseStamped>(
+        make_pose_stamped(request->target_pose));
+    goal_callback(message);
+    response->success = true;
+    response->message = "MPC target accepted; no open-loop trajectory";
+    response->dt = 0.0;
+  }
+
+  void mpc_goal_callback(const geometry_msgs::msg::Pose::SharedPtr message) {
+    if (!action_active_) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                           "mpc_goal ignored: no active execute_trajectory action");
+      return;
+    }
+    auto stamped = std::make_shared<geometry_msgs::msg::PoseStamped>(
+        make_pose_stamped(*message));
+    live_goal_callback(stamped);
+  }
+
+  rclcpp_action::GoalResponse handle_goal(
+      const rclcpp_action::GoalUUID&,
+      std::shared_ptr<const SendTrajectory::Goal> goal) {
+    if (action_active_) return rclcpp_action::GoalResponse::REJECT;
+    if (goal->target_pose.position.x == 0.0 && goal->target_pose.position.y == 0.0 &&
+        goal->target_pose.position.z == 0.0) {
+      return rclcpp_action::GoalResponse::REJECT;
+    }
+    return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+  }
+
+  rclcpp_action::CancelResponse handle_cancel(
+      const std::shared_ptr<GoalHandle> /*goal_handle*/) {
+    action_active_ = false;
+    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+    auto response = std::make_shared<std_srvs::srv::Trigger::Response>();
+    cancel_callback(request, response);
+    return rclcpp_action::CancelResponse::ACCEPT;
+  }
+
+  void handle_accepted(const std::shared_ptr<GoalHandle> goal_handle) {
+    action_active_ = true;
+    action_target_ = goal_handle->get_goal()->target_pose;
+    live_goal_pub_->publish(make_pose_stamped(action_target_));
+    action_feedback_timer_ = this->create_wall_timer(
+        std::chrono::milliseconds(33),
+        [this, goal_handle]() { publish_action_feedback(goal_handle); });
+  }
+
+  void publish_action_feedback(const std::shared_ptr<GoalHandle> goal_handle) {
+    if (!action_active_) return;
+    auto feedback = std::make_shared<SendTrajectory::Feedback>();
+    feedback->state = "TRACKING";
+    geometry_msgs::msg::TransformStamped transform;
+    try {
+      transform = tf_buffer_->lookupTransform(base_frame_, tool_frame_, tf2::TimePointZero);
+    } catch (const std::exception&) {
+      feedback->state = "FAILED";
+      feedback->position_error = -1.0;
+      goal_handle->publish_feedback(feedback);
+      return;
+    }
+    const auto& p = transform.transform.translation;
+    const double dx = p.x - action_target_.position.x;
+    const double dy = p.y - action_target_.position.y;
+    const double dz = p.z - action_target_.position.z;
+    feedback->position_error_x = dx;
+    feedback->position_error_y = dy;
+    feedback->position_error_z = dz;
+    feedback->position_error = std::sqrt(dx * dx + dy * dy + dz * dz);
+    feedback->on_target = feedback->position_error < 0.01;
+    feedback->hold_count = feedback->on_target ? feedback->hold_count + 1 : 0;
+    if (feedback->on_target) feedback->state = "ON_TARGET";
+    goal_handle->publish_feedback(feedback);
+  }
+
   void cancel_callback(
       const std::shared_ptr<std_srvs::srv::Trigger::Request> /*request*/,
       std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
@@ -1084,6 +1234,11 @@ class MpcNode : public rclcpp::Node {
   std::string action_;
   std::string world_topic_;
   std::string live_goal_topic_;
+  std::string base_frame_;
+  std::string tool_frame_;
+  std::string current_planner_ = "Model Predictive Control (MPC)";
+  std::atomic<bool> action_active_{false};
+  geometry_msgs::msg::Pose action_target_;
   double bat_length_ = 0.6;
   double bat_radius_ = 0.03;
   double bat_initial_x_ = 0.45;
@@ -1124,6 +1279,15 @@ class MpcNode : public rclcpp::Node {
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr fault_sub_;
   rclcpp::Subscription<curobo_planner_interfaces::msg::ObstacleUpdate>::SharedPtr world_sub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_srv_;
+  rclcpp::Service<curobo_msgs::srv::SetPlanner>::SharedPtr set_planner_srv_;
+  rclcpp::Service<curobo_msgs::srv::GetPlanners>::SharedPtr get_planners_srv_;
+  rclcpp::Service<curobo_msgs::srv::TrajectoryGeneration>::SharedPtr generate_srv_;
+  rclcpp_action::Server<SendTrajectory>::SharedPtr action_server_;
+  rclcpp::TimerBase::SharedPtr action_feedback_timer_;
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr mpc_goal_sub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr live_goal_pub_;
   rclcpp::TimerBase::SharedPtr accept_timer_;
   rclcpp::TimerBase::SharedPtr far_replan_timer_;
   std::thread producer_;

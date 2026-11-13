@@ -10,9 +10,9 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('frame_id', default_value='panda_link0'),
-        DeclareLaunchArgument('x', default_value='0.45'),
+        DeclareLaunchArgument('x', default_value='0.30'),
         DeclareLaunchArgument('y', default_value='0.0'),
-        DeclareLaunchArgument('z', default_value='0.55'),
+        DeclareLaunchArgument('z', default_value='0.30'),
         DeclareLaunchArgument('length', default_value='0.6'),
         DeclareLaunchArgument('radius', default_value='0.03'),
         DeclareLaunchArgument(

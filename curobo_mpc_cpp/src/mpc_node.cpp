@@ -378,6 +378,7 @@ class MpcNode : public rclcpp::Node {
                      static_cast<float>(message->pose.position.y),
                      static_cast<float>(message->pose.position.z)};
     pose.position[0] = static_cast<float>(bat_initial_x_);
+    pose.position[1] = static_cast<float>(bat_initial_y_);
     pose.quaternion = {static_cast<float>(o.w / norm), static_cast<float>(o.x / norm),
                        static_cast<float>(o.y / norm), static_cast<float>(o.z / norm)};
     std::lock_guard<std::mutex> lock(data_mutex_);
@@ -423,6 +424,9 @@ class MpcNode : public rclcpp::Node {
     }
     std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
     planner_mode_ = false;
+    if (has_bat_pose_ && bat_handle_.valid()) {
+      scene_->update_obstacle_pose(bat_handle_, bat_pose_);
+    }
     check_cuda(cudaMemcpy(d_goal_pos_, positions.data(), positions.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "goal pos");
     check_cuda(cudaMemcpy(d_goal_quat_, quats.data(), quats.size() * sizeof(float),

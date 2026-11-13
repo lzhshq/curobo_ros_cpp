@@ -20,9 +20,9 @@ class BatMarker(Node):
     def __init__(self):
         super().__init__('bat_marker')
         self.frame_id = self.declare_parameter('frame_id', 'panda_link0').value
-        self.fixed_x = float(self.declare_parameter('x', 0.45).value)
-        self.initial_y = float(self.declare_parameter('y', 0.0).value)
-        self.initial_z = float(self.declare_parameter('z', 0.55).value)
+        self.fixed_x = float(self.declare_parameter('x', 0.30).value)
+        self.fixed_y = float(self.declare_parameter('y', 0.0).value)
+        self.initial_z = float(self.declare_parameter('z', 0.30).value)
         self.length = float(self.declare_parameter('length', 0.6).value)
         self.radius = float(self.declare_parameter('radius', 0.03).value)
         topic = self.declare_parameter(
@@ -37,7 +37,7 @@ class BatMarker(Node):
         marker.description = 'bat: drag Y/Z'
         marker.scale = 0.4
         marker.pose.position.x = self.fixed_x
-        marker.pose.position.y = self.initial_y
+        marker.pose.position.y = self.fixed_y
         marker.pose.position.z = self.initial_z
         marker.pose.orientation.w = 1.0
 
@@ -54,21 +54,14 @@ class BatMarker(Node):
         visual.pose.orientation.y = math.sin(math.pi / 4.0)
         visual.pose.orientation.w = math.cos(math.pi / 4.0)
 
-        control = InteractiveMarkerControl()
-        control.always_visible = True
-        control.interaction_mode = InteractiveMarkerControl.MOVE_AXIS
-        control.orientation.x = math.sin(math.pi / 4.0)
-        control.orientation.w = math.cos(math.pi / 4.0)
-        control.name = 'move_y'
-        control.markers.append(visual)
-        marker.controls.append(control)
-
-        control_z = InteractiveMarkerControl()
-        control_z.always_visible = True
-        control_z.interaction_mode = InteractiveMarkerControl.MOVE_AXIS
-        control_z.orientation.w = 1.0
-        control_z.name = 'move_z'
-        marker.controls.append(control_z)
+        # Only Z is draggable. X and Y are fixed by the feedback callback.
+        handle_z = InteractiveMarkerControl()
+        handle_z.always_visible = True
+        handle_z.interaction_mode = InteractiveMarkerControl.MOVE_AXIS
+        handle_z.orientation.w = 1.0
+        handle_z.name = 'move_z'
+        handle_z.markers.append(visual)
+        marker.controls.append(handle_z)
 
         self.server.insert(marker, feedback_callback=self.feedback)
         self.server.applyChanges()
@@ -86,7 +79,8 @@ class BatMarker(Node):
 
     def feedback(self, feedback):
         pose = feedback.pose
-        pose.position.x = self.fixed_x  # only Y/Z are editable
+        pose.position.x = self.fixed_x  # only Z is editable
+        pose.position.y = self.fixed_y
         self.server.setPose(feedback.marker_name, pose)
         self.server.applyChanges()
         self.publish_pose(pose, self.get_clock().now().to_msg())

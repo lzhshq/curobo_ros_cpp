@@ -139,6 +139,7 @@ class MpcNode : public rclcpp::Node {
     parse_name_map(name_map);
 
     kinematics_ = std::make_unique<curobo::robot::Kinematics>(artifact_dir_);
+    feedback_kinematics_ = std::make_unique<curobo::robot::Kinematics>(artifact_dir_);
     curobo_ros_cpp::PlannerConfig world_config;
     world_config.artifact_dir = artifact_dir_;
     world_config.max_cuboids = 8;
@@ -251,6 +252,14 @@ class MpcNode : public rclcpp::Node {
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_fk_jac_),
                           static_cast<std::size_t>(tool_count_) * 6 * dof_ * sizeof(float)),
                "fk jac");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_fb_q_), dof_ * sizeof(float)), "fb q");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_fb_pos_),
+                          static_cast<std::size_t>(tool_count_) * 3 * sizeof(float)), "fb pos");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_fb_quat_),
+                          static_cast<std::size_t>(tool_count_) * 4 * sizeof(float)), "fb quat");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_fb_jac_),
+                          static_cast<std::size_t>(tool_count_) * 6 * dof_ * sizeof(float)),
+               "fb jac");
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_brake_q_),
                           static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
                "brake q");
@@ -376,6 +385,10 @@ class MpcNode : public rclcpp::Node {
     cudaFree(d_fk_pos_);
     cudaFree(d_fk_quat_);
     cudaFree(d_fk_jac_);
+    cudaFree(d_fb_q_);
+    cudaFree(d_fb_pos_);
+    cudaFree(d_fb_quat_);
+    cudaFree(d_fb_jac_);
     cudaFree(d_brake_q_);
     cudaFree(d_brake_v_);
     cudaFree(d_brake_a_);
@@ -1269,10 +1282,48 @@ class MpcNode : public rclcpp::Node {
 
   void publish_action_feedback(const std::shared_ptr<GoalHandle> goal_handle) {
     if (!action_active_) return;
+    std::vector<float> q(static_cast<std::size_t>(dof_), 0.0F);
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      for (int i = 0; i < dof_; ++i) {
+        const auto it = state_.find(kinematics_->joint_name(i));
+        if (it != state_.end()) q[i] = it->second;
+      }
+    }
     auto feedback = std::make_shared<SendTrajectory::Feedback>();
     feedback->state = "TRACKING";
-    feedback->position_error = 0.0;
-    feedback->on_target = false;
+    try {
+      check_cuda(cudaMemcpy(d_fb_q_, q.data(), q.size() * sizeof(float),
+                            cudaMemcpyHostToDevice), "fb q");
+      feedback_kinematics_->forward(d_fb_q_, d_fb_pos_, d_fb_quat_, d_fb_jac_, 1, 1);
+      check_cuda(cudaDeviceSynchronize(), "fb forward");
+      std::vector<float> pos(static_cast<std::size_t>(tool_count_) * 3);
+      std::vector<float> quat(static_cast<std::size_t>(tool_count_) * 4);
+      check_cuda(cudaMemcpy(pos.data(), d_fb_pos_, pos.size() * sizeof(float),
+                            cudaMemcpyDeviceToHost), "fb pos copy");
+      check_cuda(cudaMemcpy(quat.data(), d_fb_quat_, quat.size() * sizeof(float),
+                            cudaMemcpyDeviceToHost), "fb quat copy");
+      const double dx = pos[0] - action_target_.position.x;
+      const double dy = pos[1] - action_target_.position.y;
+      const double dz = pos[2] - action_target_.position.z;
+      feedback->position_error_x = dx;
+      feedback->position_error_y = dy;
+      feedback->position_error_z = dz;
+      feedback->position_error = std::sqrt(dx * dx + dy * dy + dz * dz);
+      tf2::Quaternion current(quat[1], quat[2], quat[3], quat[0]);
+      tf2::Quaternion goal(action_target_.orientation.x, action_target_.orientation.y,
+                           action_target_.orientation.z, action_target_.orientation.w);
+      feedback->orientation_error = current.angleShortestPath(goal);
+      feedback->on_target = feedback->position_error < 0.01 &&
+                            feedback->orientation_error < 0.20;
+      feedback->hold_count = feedback->on_target ? feedback_hold_count_++ : (feedback_hold_count_ = 0);
+      if (feedback->on_target) feedback->state = "ON_TARGET";
+      feedback->joint_command.name = controller_names_;
+      feedback->joint_command.position.assign(q.begin(), q.end());
+      (void)0;
+    } catch (const std::exception&) {
+      feedback->position_error = -1.0;
+    }
     goal_handle->publish_feedback(feedback);
   }
 
@@ -1350,6 +1401,7 @@ class MpcNode : public rclcpp::Node {
   bool use_measured_state_ = false;
 
   std::unique_ptr<curobo::robot::Kinematics> kinematics_;
+  std::unique_ptr<curobo::robot::Kinematics> feedback_kinematics_;
   std::unique_ptr<curobo_ros_cpp::PlannerCore> planner_core_;
   curobo::robot::Scene* scene_ = nullptr;
   curobo::robot::MotionPlanner* planner_ = nullptr;
@@ -1461,6 +1513,10 @@ class MpcNode : public rclcpp::Node {
   float* d_fk_pos_ = nullptr;
   float* d_fk_quat_ = nullptr;
   float* d_fk_jac_ = nullptr;
+  float* d_fb_q_ = nullptr;
+  float* d_fb_pos_ = nullptr;
+  float* d_fb_quat_ = nullptr;
+  float* d_fb_jac_ = nullptr;
   float* d_brake_q_ = nullptr;
   float* d_brake_v_ = nullptr;
   float* d_brake_a_ = nullptr;

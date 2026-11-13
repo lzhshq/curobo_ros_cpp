@@ -29,20 +29,49 @@ not a hard-coded absolute path in new code.
    are the source of truth. Do not reimplement planning/MPC math in ROS code.
 
 2. **One ROS-facing solver architecture.**
-   The target contract is the official `curobo_ros` shape:
+   The planning side follows the official `curobo_ros` shape:
 
    ```text
    World / Scene
    → PlannerCore / MotionPlanner
    → MpcController
-   → execution adapter
-   → one unified ROS facade
+   → planning ROS interface
+   ```
+
+   Execution is a separate layer:
+
+   ```text
+   planning ROS interface
+   → execution node / executor
+   → JTC or hardware controller
    ```
 
    Do not add a parallel facade, a second world owner, or a second MPC control
    path as a workaround.
 
-3. **Official interfaces are the public contract.**
+3. **Planning and execution are separate layers.**
+   This repository intentionally keeps:
+
+   ```text
+   curobo_planner_cpp    planning only
+   curobo_mpc_cpp        planning/control only
+   curobo_execution_cpp  execution only (JTC/topic adapter, hardware)
+   ```
+
+   Rules:
+
+   - Planning/MPC code must not create or own a `JtcAdapter`.
+   - Planning/MPC code must not call `FollowJointTrajectory` directly.
+   - Execution code must not own `PlannerCore`, `MpcController`, or `Scene`.
+   - The boundary is a ROS interface: `JointTrajectory`, command topic, or
+     action. It must be explicit and testable.
+   - A unified planner facade may expose `execute_trajectory`, but it must
+     delegate execution to the execution layer, not bypass it.
+
+   Current known violation: `curobo_mpc_cpp/src/mpc_node.cpp` directly owns a
+   `JtcAdapter`. This is a migration target, not a pattern to copy.
+
+4. **Official interfaces are the public contract.**
    Prefer, in this order:
 
    ```text
@@ -56,7 +85,7 @@ not a hard-coded absolute path in new code.
    Custom `/curobo_mpc/*` topics are internal/test-only unless explicitly
    documented as a temporary migration aid.
 
-4. **MPC semantics come from C++ `mpc.cpp`, not intuition.**
+5. **MPC semantics come from C++ `mpc.cpp`, not intuition.**
    - `executed_knots` is a **knot count**, not a sample count.
    - `step()` shifts the seed by whole knots and consumes the accepted result.
    - A segment shorter than the B-spline support can be flat and produce no
@@ -64,13 +93,13 @@ not a hard-coded absolute path in new code.
    - Preserve last-action velocity/acceleration when feeding the next state,
      as official `curobo_ros` `ReactiveController` does.
 
-5. **No blocking planning inside ROS callbacks.**
+6. **No blocking planning inside ROS callbacks.**
    ROS callbacks may enqueue state/goal updates. Expensive
    `plan_pose`/`reset_cartesian`/`update_cartesian_target` work belongs to the
    control-loop/producer thread (or a dedicated worker). A single-threaded
    executor must keep processing `/joint_states`.
 
-6. **Do not mix open-loop planner behavior into MPC mode.**
+7. **Do not mix open-loop planner behavior into MPC mode.**
    Official `curobo_ros` has separate planner families:
 
    ```text
@@ -82,7 +111,7 @@ not a hard-coded absolute path in new code.
    the MPC action contract. If retained, it must be a separately named mode or
    an explicit outer waypoint/replan layer.
 
-7. **World ownership.**
+8. **World ownership.**
    Obstacle mutation goes through the shared `PlannerCore` object registry and
    `Scene`. Dynamic obstacles use `update_object_pose` without rebuilding the
    planner. Do not create a separate MPC-only obstacle system.
@@ -107,6 +136,8 @@ not a hard-coded absolute path in new code.
 - Publishing a new action target without preserving action/cancel state.
 - Treating a demo bat capsule as the world model instead of using the generic
   obstacle update path.
+- Coupling a planning/MPC node directly to `JtcAdapter`, violating the
+  planning/execution boundary.
 
 ## Verification baseline
 

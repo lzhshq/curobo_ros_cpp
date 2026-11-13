@@ -39,6 +39,7 @@ class FakeJtc(Node):
         self.q = [float(v) for v in initial]
         self.vel = [0.0] * len(self.joint_names)
         self.lock = threading.Lock()
+        self._generation = 0
 
         self.publisher = self.create_publisher(JointState, '/joint_states', 20)
         self.create_timer(1.0 / max(self.rate_hz, 1.0), self._publish)
@@ -92,6 +93,9 @@ class FakeJtc(Node):
                 [float(point.positions[index]) for index in target_index],
             ))
         points.sort(key=lambda item: item[0])
+        with self.lock:
+            self._generation += 1
+            generation = self._generation
 
         if len(points) == 1:
             with self.lock:
@@ -105,6 +109,10 @@ class FakeJtc(Node):
         start = time.monotonic()
         previous = list(self.q)
         while True:
+            with self.lock:
+                if generation != self._generation:
+                    goal_handle.abort()
+                    return self._result(-1, 'preempted by newer goal')
             if goal_handle.is_cancel_requested:
                 with self.lock:
                     self.vel = [0.0] * len(self.q)
@@ -137,6 +145,10 @@ class FakeJtc(Node):
             time.sleep(0.01)
 
         with self.lock:
+            if generation != self._generation:
+                goal_handle.abort()
+                return self._result(-1, 'preempted by newer goal')
+            self.q = list(points[-1][1])
             self.vel = [0.0] * len(self.q)
         goal_handle.succeed()
         return self._result(0, 'trajectory completed')

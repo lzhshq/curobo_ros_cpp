@@ -15,6 +15,9 @@ def _launch_setup(context, *args, **kwargs):
     command_topic = LaunchConfiguration('command_topic').perform(context)
     if command_topic:
         parameters.append({'command_topic': command_topic})
+    command_interval = LaunchConfiguration('command_interval').perform(context)
+    if command_interval:
+        parameters.append({'command_interval': float(command_interval)})
     return [
         Node(
             package='curobo_mpc_cpp',
@@ -39,5 +42,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'command_topic', default_value='',
             description='FPC command topic override'),
+        DeclareLaunchArgument(
+            'command_interval', default_value='',
+            description='Accept/send interval override (s)'),
         OpaqueFunction(function=_launch_setup),
     ])

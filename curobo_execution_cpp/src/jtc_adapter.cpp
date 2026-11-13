@@ -48,8 +48,15 @@ bool JtcAdapter::send(const trajectory_msgs::msg::JointTrajectory& trajectory,
     }
   }
   if (pending_ || active_) {
-    error = "a trajectory is already active";
-    return false;
+    // MPC sends a new full horizon every command interval; preempt the old
+    // goal instead of rejecting the update.
+    if (goal_handle_) {
+      client_->async_cancel_goal(goal_handle_);
+    }
+    goal_handle_.reset();
+    pending_ = false;
+    active_ = false;
+    status_ = "replacing";
   }
   if (trajectory.points.empty()) {
     error = "trajectory has no points";

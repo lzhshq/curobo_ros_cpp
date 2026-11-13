@@ -29,10 +29,10 @@ class TargetCycle(Node):
         self.period = float(self.declare_parameter('period', 0.10).value)
 
         # x, y, z, qx, qy, qz, qw in the base frame.
-        default_a = [0.161, 0.05, 0.65,
-                     -0.988745, 0.007219, -0.149434, 0.001091]
-        default_b = [0.161, -0.03, 0.63,
-                     -0.988745, 0.007219, -0.149434, 0.001091]
+        default_a = [0.11332, 0.18179, 0.67355,
+                     0.00665, -0.94516, -0.32638, 0.01008]
+        default_b = [0.10543, -0.12509, 0.59443,
+                     0.07429, 0.95883, -0.14682, 0.23145]
         self.targets = [
             list(self.declare_parameter('target_a', default_a).value),
             list(self.declare_parameter('target_b', default_b).value),

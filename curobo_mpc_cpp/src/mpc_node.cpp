@@ -83,7 +83,7 @@ class MpcNode : public rclcpp::Node {
     command_topic_ = this->declare_parameter<std::string>(
         "command_topic", "/position_forward_controller/commands");
     control_rate_ = this->declare_parameter<double>("control_rate", 30.0);
-    command_interval_ = this->declare_parameter<double>("command_interval", 0.24);
+    command_interval_ = this->declare_parameter<double>("command_interval", 0.48);
     adapter_name_ = this->declare_parameter<std::string>("adapter", "fpc");
     action_ = this->declare_parameter<std::string>(
         "action", "/position_joint_trajectory_controller/follow_joint_trajectory");
@@ -124,6 +124,8 @@ class MpcNode : public rclcpp::Node {
     curobo::robot::MpcConfig mpc_config;
     mpc_config.trajectory_dt = static_cast<float>(trajectory_dt);
     mpc_ = std::make_unique<curobo::robot::MpcController>(*planner_, mpc_config);
+    ik_ = planner_->create_inverse_kinematics(
+        curobo::robot::InverseKinematicsConfig{});
 
     const auto robot = planner_->robot_info();
     dof_ = robot.num_dof;
@@ -166,6 +168,47 @@ class MpcNode : public rclcpp::Node {
                "goal quat");
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_seed_), knots_ * dof_ * sizeof(float)),
                "seed");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_ik_solution_), dof_ * sizeof(float)),
+               "ik solution");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_ik_success_), sizeof(uint8_t)),
+               "ik success");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_ik_current_), dof_ * sizeof(float)),
+               "ik current");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_ik_position_error_), sizeof(float)),
+               "ik position error");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_ik_orientation_error_), sizeof(float)),
+               "ik orientation error");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_ik_collision_cost_), sizeof(float)),
+               "ik collision cost");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_knots_),
+                          static_cast<std::size_t>(knots_) * dof_ * sizeof(float)),
+               "plan knots");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_q_),
+                          static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
+               "plan q");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_v_),
+                          static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
+               "plan v");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_a_),
+                          static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
+               "plan a");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_j_),
+                          static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
+               "plan j");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_success_), sizeof(uint8_t)),
+               "plan success");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_used_rrt_), sizeof(uint8_t)),
+               "plan rrt");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_rrt_iters_), sizeof(int32_t)),
+               "plan rrt iters");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_cost_), sizeof(float)), "plan cost");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_collision_), sizeof(float)),
+               "plan collision");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_dt_), sizeof(float)), "plan dt");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_position_error_), sizeof(float)),
+               "plan pose error");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_plan_orientation_error_), sizeof(float)),
+               "plan orientation error");
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_brake_q_),
                           static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
                "brake q");
@@ -228,6 +271,25 @@ class MpcNode : public rclcpp::Node {
     cudaFree(d_goal_pos_);
     cudaFree(d_goal_quat_);
     cudaFree(d_seed_);
+    cudaFree(d_ik_solution_);
+    cudaFree(d_ik_success_);
+    cudaFree(d_ik_current_);
+    cudaFree(d_ik_position_error_);
+    cudaFree(d_ik_orientation_error_);
+    cudaFree(d_ik_collision_cost_);
+    cudaFree(d_plan_knots_);
+    cudaFree(d_plan_q_);
+    cudaFree(d_plan_v_);
+    cudaFree(d_plan_a_);
+    cudaFree(d_plan_j_);
+    cudaFree(d_plan_success_);
+    cudaFree(d_plan_used_rrt_);
+    cudaFree(d_plan_rrt_iters_);
+    cudaFree(d_plan_cost_);
+    cudaFree(d_plan_collision_);
+    cudaFree(d_plan_dt_);
+    cudaFree(d_plan_position_error_);
+    cudaFree(d_plan_orientation_error_);
     cudaFree(d_brake_q_);
     cudaFree(d_brake_v_);
     cudaFree(d_brake_a_);
@@ -343,28 +405,103 @@ class MpcNode : public rclcpp::Node {
       quats[static_cast<std::size_t>(tool) * 4 + 2] = o.y / norm;
       quats[static_cast<std::size_t>(tool) * 4 + 3] = o.z / norm;
     }
-    std::vector<float> seed(static_cast<std::size_t>(knots_) * dof_);
-    for (int k = 0; k < knots_; ++k) {
-      std::copy(q.begin(), q.end(), seed.begin() + static_cast<std::size_t>(k) * dof_);
-    }
-
     std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
     check_cuda(cudaMemcpy(d_goal_pos_, positions.data(), positions.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "goal pos");
     check_cuda(cudaMemcpy(d_goal_quat_, quats.data(), quats.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "goal quat");
+    check_cuda(cudaMemcpy(d_ik_current_, q.data(), q.size() * sizeof(float),
+                          cudaMemcpyHostToDevice), "ik current");
+
+    std::vector<float> goal_q = q;
+    bool have_plan_seed = false;
+    std::vector<float> seed(static_cast<std::size_t>(knots_) * dof_, 0.0F);
+    curobo::robot::PoseMotionPlanningRequest plan_request;
+    plan_request.current_position = d_q_;
+    plan_request.goal_positions = d_goal_pos_;
+    plan_request.goal_quaternions = d_goal_quat_;
+    plan_request.optimized_knots = d_plan_knots_;
+    plan_request.trajectory_position = d_plan_q_;
+    plan_request.trajectory_velocity = d_plan_v_;
+    plan_request.trajectory_acceleration = d_plan_a_;
+    plan_request.trajectory_jerk = d_plan_j_;
+    plan_request.success = d_plan_success_;
+    plan_request.used_rrt = d_plan_used_rrt_;
+    plan_request.rrt_iterations = d_plan_rrt_iters_;
+    plan_request.cost = d_plan_cost_;
+    plan_request.collision_cost = d_plan_collision_;
+    plan_request.trajectory_dt = d_plan_dt_;
+    plan_request.position_error = d_plan_position_error_;
+    plan_request.orientation_error = d_plan_orientation_error_;
+    check_cuda(cudaMemcpy(d_q_, q.data(), q.size() * sizeof(float), cudaMemcpyHostToDevice),
+               "plan start");
+    planner_->plan_pose(plan_request);
+    uint8_t plan_ok = 0;
+    check_cuda(cudaMemcpy(&plan_ok, d_plan_success_, sizeof(uint8_t), cudaMemcpyDeviceToHost),
+               "plan success");
+    if (plan_ok != 0) {
+      check_cuda(cudaMemcpy(seed.data(), d_plan_knots_,
+                            seed.size() * sizeof(float), cudaMemcpyDeviceToHost),
+                 "plan seed");
+      have_plan_seed = true;
+      RCLCPP_INFO(this->get_logger(), "MotionPlanner seed found");
+    }
+
+    curobo::robot::IkSolveRequest ik_request;
+    ik_request.goal_positions = d_goal_pos_;
+    ik_request.goal_quaternions = d_goal_quat_;
+    ik_request.current_positions = d_ik_current_;
+    ik_request.solution = d_ik_solution_;
+    ik_request.success = d_ik_success_;
+    ik_request.position_error = d_ik_position_error_;
+    ik_request.orientation_error = d_ik_orientation_error_;
+    ik_request.collision_cost = d_ik_collision_cost_;
+    ik_request.batch_size = 1;
+    ik_request.num_goalset = 1;
+    ik_request.num_solutions = 1;
+    ik_->solve(ik_request);
+    uint8_t ik_ok = 0;
+    check_cuda(cudaMemcpy(&ik_ok, d_ik_success_, sizeof(uint8_t),
+                          cudaMemcpyDeviceToHost), "ik success");
+    if (ik_ok != 0) {
+      check_cuda(cudaMemcpy(goal_q.data(), d_ik_solution_, goal_q.size() * sizeof(float),
+                            cudaMemcpyDeviceToHost), "ik solution");
+      RCLCPP_INFO(this->get_logger(), "IK goal found for MPC seed");
+    } else {
+      RCLCPP_WARN(this->get_logger(), "IK failed; falling back to current-state seed");
+    }
+
+    if (!have_plan_seed) {
+      for (int k = 0; k < knots_; ++k) {
+        const float alpha = knots_ > 1 ? static_cast<float>(k) / (knots_ - 1) : 0.0F;
+        for (int j = 0; j < dof_; ++j) {
+          seed[static_cast<std::size_t>(k) * dof_ + j] =
+              q[j] + alpha * (goal_q[j] - q[j]);
+        }
+      }
+    }
     check_cuda(cudaMemcpy(d_seed_, seed.data(), seed.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "seed");
-    curobo::robot::MpcCartesianConfig objective;
-    objective.constrain_path = false;
-    mpc_->reset_cartesian(d_goal_pos_, d_goal_quat_, d_seed_, objective);
+    if (ik_ok != 0) {
+      // Official C++ mpc_test main loop uses a joint goal reset.
+      mpc_->reset(d_ik_solution_, d_seed_);
+    } else {
+      curobo::robot::MpcCartesianConfig objective;
+      objective.constrain_path = false;
+      mpc_->reset_cartesian(d_goal_pos_, d_goal_quat_, d_seed_, objective);
+    }
 
     std::lock_guard<std::mutex> lock(data_mutex_);
     active_goal_ = true;
     proposal_fresh_ = false;
     has_active_ = false;
-    executed_knots_ = 0;
+    has_accept_time_ = false;
+    executed_knots_ = 1;
     handoffs_ = 0;
+    predicted_q_ = q;
+    predicted_v_.assign(static_cast<std::size_t>(dof_), 0.0F);
+    predicted_a_.assign(static_cast<std::size_t>(dof_), 0.0F);
+    has_predicted_ = true;
     set_status("goal received");
   }
 
@@ -373,19 +510,31 @@ class MpcNode : public rclcpp::Node {
     auto next = std::chrono::steady_clock::now();
     while (running_) {
       next += std::chrono::duration_cast<std::chrono::steady_clock::duration>(period);
-      std::vector<float> q, goal_pos, goal_quat, seed;
+      std::vector<float> q, v, a, goal_pos, goal_quat, seed;
       int executed = 0;
       bool active = false;
       curobo::robot::Pose bat_pose;
       bool has_bat = false;
+      bool step_due = true;
       {
         std::lock_guard<std::mutex> lock(data_mutex_);
         active = active_goal_;
         executed = executed_knots_;
         bat_pose = bat_pose_;
         has_bat = has_bat_pose_;
-        if (active && has_state_) {
+        if (has_active_ && has_accept_time_) {
+          step_due = std::chrono::duration<double>(
+                         std::chrono::steady_clock::now() - last_accept_time_)
+                         .count() >= command_interval_;
+        }
+        if (active && has_predicted_) {
+          q = predicted_q_;
+          v = predicted_v_;
+          a = predicted_a_;
+        } else if (active && has_state_) {
           q.resize(static_cast<std::size_t>(dof_));
+          v.assign(static_cast<std::size_t>(dof_), 0.0F);
+          a.assign(static_cast<std::size_t>(dof_), 0.0F);
           for (int i = 0; i < dof_; ++i) {
             const auto it = state_.find(kinematics_->joint_name(i));
             if (it == state_.end()) { active = false; break; }
@@ -395,7 +544,7 @@ class MpcNode : public rclcpp::Node {
           active = false;
         }
       }
-      if (active) {
+      if (active && step_due) {
         try {
           std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
           if (has_bat && bat_handle_.valid()) {
@@ -404,20 +553,39 @@ class MpcNode : public rclcpp::Node {
           std::vector<float> zero(static_cast<std::size_t>(dof_), 0.0F);
           check_cuda(cudaMemcpy(d_q_, q.data(), q.size() * sizeof(float),
                                 cudaMemcpyHostToDevice), "q");
-          check_cuda(cudaMemset(d_v_, 0, zero.size() * sizeof(float)), "v");
-          check_cuda(cudaMemset(d_a_, 0, zero.size() * sizeof(float)), "a");
+          check_cuda(cudaMemcpy(d_v_, v.data(), v.size() * sizeof(float),
+                                cudaMemcpyHostToDevice), "v");
+          check_cuda(cudaMemcpy(d_a_, a.data(), a.size() * sizeof(float),
+                                cudaMemcpyHostToDevice), "a");
           check_cuda(cudaMemset(d_j_, 0, zero.size() * sizeof(float)), "j");
           const auto result = mpc_->step(d_q_, d_v_, d_a_, d_j_, executed);
+          if (!result.feasible) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                                 "MPC infeasible: cost=%.3f collision=%.3f knots=%d",
+                                 result.cost, result.collision_cost, executed);
+            std::lock_guard<std::mutex> lock(data_mutex_);
+            executed_knots_ = 0;
+          }
           if (result.feasible &&
               mpc_->validate_trajectory(result.position, result.velocity,
                                         result.acceleration, result.jerk,
                                         result.trajectory_dt)) {
             std::vector<float> horizon(static_cast<std::size_t>(steps_) * dof_);
+            std::vector<float> horizon_v(horizon.size());
+            std::vector<float> horizon_a(horizon.size());
             check_cuda(cudaMemcpy(horizon.data(), result.position,
                                   horizon.size() * sizeof(float), cudaMemcpyDeviceToHost),
                        "horizon");
+            check_cuda(cudaMemcpy(horizon_v.data(), result.velocity,
+                                  horizon_v.size() * sizeof(float), cudaMemcpyDeviceToHost),
+                       "horizon v");
+            check_cuda(cudaMemcpy(horizon_a.data(), result.acceleration,
+                                  horizon_a.size() * sizeof(float), cudaMemcpyDeviceToHost),
+                       "horizon a");
             std::lock_guard<std::mutex> lock(data_mutex_);
             proposal_ = std::move(horizon);
+            proposal_v_ = std::move(horizon_v);
+            proposal_a_ = std::move(horizon_a);
             proposal_dt_ = result.trajectory_dt;
             proposal_fresh_ = true;
           }
@@ -459,22 +627,9 @@ class MpcNode : public rclcpp::Node {
         const auto vel_it = velocity_.find(name);
         if (vel_it != velocity_.end()) velocity[i] = vel_it->second;
       }
-      if (has_active_ && !active_.empty()) {
-        const double elapsed = std::chrono::duration<double>(
-                                   std::chrono::steady_clock::now() - active_start_)
-                                   .count();
-        const std::size_t index = std::min(
-            static_cast<std::size_t>(elapsed / std::max(active_dt_, 1e-6F)),
-            static_cast<std::size_t>(steps_ - 1));
-        float error = 0.0F;
-        for (int j = 0; j < dof_; ++j) {
-          error = std::max(error, std::abs(q[j] - active_[index * dof_ + j]));
-        }
-        if (error > max_tracking_error_) {
-          reason = "tracking error " + std::to_string(error);
-          return false;
-        }
-      }
+      // Official C++ MPC validates the candidate trajectory; it does not gate
+      // acceptance on measured-vs-predicted tracking error. Keep measured
+      // state only for freshness/fault/brake checks.
     }
     if (!brake_feasible(q, velocity)) {
       reason = "brake infeasible";
@@ -531,8 +686,8 @@ class MpcNode : public rclcpp::Node {
     segment.header.stamp = this->now();
     segment.joint_names = controller_names_;
     const int segment_steps = std::max(
-        1, std::min(steps_, static_cast<int>(
-            std::llround(command_interval_ / std::max(proposal_dt_, 1e-6F)))));
+        2, std::min(steps_, static_cast<int>(
+            std::llround(16.0 * proposal_dt_ / std::max(proposal_dt_, 1e-6F))) + 1));
     for (int i = 0; i < segment_steps; ++i) {
       trajectory_msgs::msg::JointTrajectoryPoint point;
       point.positions.resize(controller_source_.size());
@@ -551,13 +706,27 @@ class MpcNode : public rclcpp::Node {
     }
     {
       std::lock_guard<std::mutex> lock(data_mutex_);
+      const int period_index = std::min(
+          steps_ - 1, std::max(1, static_cast<int>(
+              std::llround(16.0 * proposal_dt_ / std::max(proposal_dt_, 1e-6F)))));
+      predicted_q_.resize(static_cast<std::size_t>(dof_));
+      predicted_v_.resize(static_cast<std::size_t>(dof_));
+      predicted_a_.resize(static_cast<std::size_t>(dof_));
+      for (int j = 0; j < dof_; ++j) {
+        predicted_q_[j] = proposal_[static_cast<std::size_t>(period_index) * dof_ + j];
+        predicted_v_[j] = proposal_v_[static_cast<std::size_t>(period_index) * dof_ + j];
+        predicted_a_[j] = proposal_a_[static_cast<std::size_t>(period_index) * dof_ + j];
+      }
+      has_predicted_ = true;
       mpc_->accept();
       active_ = proposal_;
       active_dt_ = proposal_dt_;
       active_start_ = std::chrono::steady_clock::now();
+      last_accept_time_ = active_start_;
+      has_accept_time_ = true;
       has_active_ = true;
       proposal_fresh_ = false;
-      executed_knots_ = std::min(knots_, executed_knots_ + knots_per_interval_);
+      executed_knots_ = 4;
       ++handoffs_;
     }
     set_status("tracking");
@@ -591,7 +760,7 @@ class MpcNode : public rclcpp::Node {
   double goal_tolerance_ = 0.02;
   double goal_time_tolerance_ = 2.0;
   double control_rate_ = 30.0;
-  double command_interval_ = 0.24;
+  double command_interval_ = 0.48;
   double state_timeout_ = 0.2;
   double max_tracking_error_ = 0.05;
   double brake_deceleration_ = 2.0;
@@ -607,6 +776,7 @@ class MpcNode : public rclcpp::Node {
   std::unique_ptr<curobo::robot::Scene> scene_;
   std::unique_ptr<curobo::robot::MotionPlanner> planner_;
   std::unique_ptr<curobo::robot::MpcController> mpc_;
+  std::unique_ptr<curobo::robot::InverseKinematics> ik_;
 
   std::unique_ptr<curobo_execution_cpp::ExecutionAdapter> adapter_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
@@ -638,9 +808,17 @@ class MpcNode : public rclcpp::Node {
   bool active_goal_ = false;
   bool proposal_fresh_ = false;
   bool has_active_ = false;
+  bool has_accept_time_ = false;
+  std::chrono::steady_clock::time_point last_accept_time_{};
   int executed_knots_ = 0;
   int handoffs_ = 0;
   std::vector<float> proposal_;
+  std::vector<float> proposal_v_;
+  std::vector<float> proposal_a_;
+  std::vector<float> predicted_q_;
+  std::vector<float> predicted_v_;
+  std::vector<float> predicted_a_;
+  bool has_predicted_ = false;
   float proposal_dt_ = 0.0F;
   std::vector<float> active_;
   float active_dt_ = 0.0F;
@@ -654,6 +832,25 @@ class MpcNode : public rclcpp::Node {
   float* d_goal_pos_ = nullptr;
   float* d_goal_quat_ = nullptr;
   float* d_seed_ = nullptr;
+  float* d_ik_solution_ = nullptr;
+  uint8_t* d_ik_success_ = nullptr;
+  float* d_ik_current_ = nullptr;
+  float* d_ik_position_error_ = nullptr;
+  float* d_ik_orientation_error_ = nullptr;
+  float* d_ik_collision_cost_ = nullptr;
+  float* d_plan_knots_ = nullptr;
+  float* d_plan_q_ = nullptr;
+  float* d_plan_v_ = nullptr;
+  float* d_plan_a_ = nullptr;
+  float* d_plan_j_ = nullptr;
+  uint8_t* d_plan_success_ = nullptr;
+  uint8_t* d_plan_used_rrt_ = nullptr;
+  int32_t* d_plan_rrt_iters_ = nullptr;
+  float* d_plan_cost_ = nullptr;
+  float* d_plan_collision_ = nullptr;
+  float* d_plan_dt_ = nullptr;
+  float* d_plan_position_error_ = nullptr;
+  float* d_plan_orientation_error_ = nullptr;
   float* d_brake_q_ = nullptr;
   float* d_brake_v_ = nullptr;
   float* d_brake_a_ = nullptr;

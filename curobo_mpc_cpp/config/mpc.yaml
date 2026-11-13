@@ -3,7 +3,7 @@ curobo_mpc:
     artifact_dir: ""
     trajectory_dt: 0.03
     control_rate: 30.0
-    command_interval: 0.24
+    command_interval: 0.48
     state_timeout: 0.2
     max_tracking_error: 0.05
     brake_check: true
@@ -15,7 +15,7 @@ curobo_mpc:
     bat_initial_x: 0.45
     bat_initial_y: 0.0
     bat_initial_z: 0.55
-    adapter: fpc
+    adapter: jtc
     publish_rate: 100.0
     command_topic: /position_forward_controller/commands
     joint_states_topic: /joint_states

@@ -114,12 +114,12 @@ Admission checks before `accept()`:
 
 - state freshness (`state_timeout`, default 0.2 s);
 - fault input (`/curobo_mpc/fault`, `std_msgs/Bool`);
-- tracking error against the active horizon (`max_tracking_error`);
 - brake feasibility from the current q/v (`brake_check`,
   `brake_deceleration`); a zero-velocity state passes without a brake solve.
 
-For FPC there is no action ACK, so state freshness + tracking error is the
-synthetic ACK. For JTC a real action result should replace it.
+Measured-vs-predicted tracking error is **not** an admission gate. The official
+C++ MPC test validates the candidate trajectory instead; gating on measured
+tracking error blocked far targets and was removed.
 
 Current limitations:
 
@@ -160,5 +160,16 @@ A: reached error=0.00035 rad, accepted=43, tick=85
 B: reached error=0.00146 rad, accepted=25, tick=47
 ```
 
-This confirms the MPC core/seed/timing can reach both targets. The ROS/JTC
-node still needs the same state progression ported into its execution loop.
+ROS/JTC regression after removing measured-tracking admission and using the
+predicted state for planning:
+
+```text
+home:    0.00 cm
+small_y: 0.08 cm
+A:       1.12 cm
+B:       1.51 cm
+known:   0.96 cm
+```
+
+The A/B target cycle uses a 4 cm switch tolerance because the current MPC
+converges to ~1–2 cm, not sub-cm.

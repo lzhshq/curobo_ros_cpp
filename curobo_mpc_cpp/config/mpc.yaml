@@ -4,6 +4,11 @@ curobo_mpc:
     trajectory_dt: 0.03
     control_rate: 30.0
     command_interval: 0.24
+    state_timeout: 0.2
+    max_tracking_error: 0.05
+    brake_check: true
+    brake_deceleration: 2.0
+    fault_topic: /curobo_mpc/fault
     command_rate: 100.0
     command_topic: /position_forward_controller/commands
     joint_states_topic: /joint_states

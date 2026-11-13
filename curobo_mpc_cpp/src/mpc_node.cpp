@@ -22,6 +22,7 @@
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/trigger.hpp"
@@ -70,6 +71,12 @@ class MpcNode : public rclcpp::Node {
     control_rate_ = this->declare_parameter<double>("control_rate", 30.0);
     command_rate_ = this->declare_parameter<double>("command_rate", 100.0);
     command_interval_ = this->declare_parameter<double>("command_interval", 0.24);
+    state_timeout_ = this->declare_parameter<double>("state_timeout", 0.2);
+    max_tracking_error_ = this->declare_parameter<double>("max_tracking_error", 0.05);
+    brake_check_ = this->declare_parameter<bool>("brake_check", true);
+    brake_deceleration_ = this->declare_parameter<double>("brake_deceleration", 2.0);
+    const std::string fault_topic = this->declare_parameter<std::string>(
+        "fault_topic", "/curobo_mpc/fault");
     const double trajectory_dt =
         this->declare_parameter<double>("trajectory_dt", 0.03);
     const auto controller_joints = this->declare_parameter<std::vector<std::string>>(
@@ -133,6 +140,18 @@ class MpcNode : public rclcpp::Node {
                "goal quat");
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_seed_), knots_ * dof_ * sizeof(float)),
                "seed");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_brake_q_),
+                          static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
+               "brake q");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_brake_v_),
+                          static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
+               "brake v");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_brake_a_),
+                          static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
+               "brake a");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_brake_j_),
+                          static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
+               "brake j");
 
     command_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
         command_topic_, 10);
@@ -146,6 +165,8 @@ class MpcNode : public rclcpp::Node {
     cancel_srv_ = this->create_service<std_srvs::srv::Trigger>(
         "~/cancel", std::bind(&MpcNode::cancel_callback, this, std::placeholders::_1,
                               std::placeholders::_2));
+    fault_sub_ = this->create_subscription<std_msgs::msg::Bool>(
+        fault_topic, 10, std::bind(&MpcNode::fault_callback, this, std::placeholders::_1));
     accept_timer_ = this->create_wall_timer(
         std::chrono::duration<double>(std::max(command_interval_, 1e-3)),
         std::bind(&MpcNode::accept_callback, this));
@@ -172,6 +193,10 @@ class MpcNode : public rclcpp::Node {
     cudaFree(d_goal_pos_);
     cudaFree(d_goal_quat_);
     cudaFree(d_seed_);
+    cudaFree(d_brake_q_);
+    cudaFree(d_brake_v_);
+    cudaFree(d_brake_a_);
+    cudaFree(d_brake_j_);
   }
 
  private:
@@ -199,13 +224,36 @@ class MpcNode : public rclcpp::Node {
 
   void joint_callback(const sensor_msgs::msg::JointState::SharedPtr message) {
     std::lock_guard<std::mutex> lock(data_mutex_);
+    const auto now = std::chrono::steady_clock::now();
+    velocity_.clear();
+    if (has_state_ && last_state_time_ != std::chrono::steady_clock::time_point{}) {
+      const double dt = std::chrono::duration<double>(now - last_state_time_).count();
+      if (dt > 1e-5) {
+        for (std::size_t i = 0; i < message->name.size() && i < message->position.size(); ++i) {
+          const auto mapped = name_map_.find(message->name[i]);
+          const std::string name = mapped == name_map_.end() ? message->name[i] : mapped->second;
+          const auto old = state_.find(name);
+          if (old != state_.end()) {
+            velocity_[name] = static_cast<float>(
+                (message->position[i] - old->second) / dt);
+          }
+        }
+      }
+    }
     state_.clear();
     for (std::size_t i = 0; i < message->name.size() && i < message->position.size(); ++i) {
       const auto mapped = name_map_.find(message->name[i]);
       state_[mapped == name_map_.end() ? message->name[i] : mapped->second] =
           static_cast<float>(message->position[i]);
     }
+    last_state_time_ = now;
     has_state_ = true;
+  }
+
+  void fault_callback(const std_msgs::msg::Bool::SharedPtr message) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    fault_ = message->data;
+    if (fault_) set_status("fault");
   }
 
   bool snapshot_state(std::vector<float>& q) {
@@ -323,24 +371,115 @@ class MpcNode : public rclcpp::Node {
     }
   }
 
-  void accept_callback() {
-    std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
-    bool accepted = false;
+  bool admission_ok(std::string& reason) {
+    std::vector<float> q(static_cast<std::size_t>(dof_), 0.0F);
+    std::vector<float> velocity(static_cast<std::size_t>(dof_), 0.0F);
     {
       std::lock_guard<std::mutex> lock(data_mutex_);
-      if (active_goal_ && proposal_fresh_ && !proposal_.empty()) {
-        mpc_->accept();
-        active_ = proposal_;
-        active_dt_ = proposal_dt_;
-        active_start_ = std::chrono::steady_clock::now();
-        has_active_ = true;
-        proposal_fresh_ = false;
-        executed_knots_ = std::min(knots_, executed_knots_ + knots_per_interval_);
-        ++handoffs_;
-        accepted = true;
+      if (!active_goal_ || !proposal_fresh_ || proposal_.empty()) {
+        reason = "no fresh proposal";
+        return false;
+      }
+      if (!has_state_ ||
+          std::chrono::duration<double>(std::chrono::steady_clock::now() - last_state_time_)
+                  .count() > state_timeout_) {
+        reason = "stale joint state";
+        return false;
+      }
+      if (fault_) {
+        reason = "controller fault";
+        return false;
+      }
+      for (int i = 0; i < dof_; ++i) {
+        const std::string name = kinematics_->joint_name(i);
+        const auto state_it = state_.find(name);
+        if (state_it == state_.end()) {
+          reason = "missing joint " + name;
+          return false;
+        }
+        q[i] = state_it->second;
+        const auto vel_it = velocity_.find(name);
+        if (vel_it != velocity_.end()) velocity[i] = vel_it->second;
+      }
+      if (has_active_ && !active_.empty()) {
+        const double elapsed = std::chrono::duration<double>(
+                                   std::chrono::steady_clock::now() - active_start_)
+                                   .count();
+        const std::size_t index = std::min(
+            static_cast<std::size_t>(elapsed / std::max(active_dt_, 1e-6F)),
+            static_cast<std::size_t>(steps_ - 1));
+        float error = 0.0F;
+        for (int j = 0; j < dof_; ++j) {
+          error = std::max(error, std::abs(q[j] - active_[index * dof_ + j]));
+        }
+        if (error > max_tracking_error_) {
+          reason = "tracking error " + std::to_string(error);
+          return false;
+        }
       }
     }
-    set_status(accepted ? "tracking" : "holding");
+    if (!brake_feasible(q, velocity)) {
+      reason = "brake infeasible";
+      return false;
+    }
+    return true;
+  }
+
+  bool brake_feasible(const std::vector<float>& q, const std::vector<float>& velocity) {
+    if (!brake_check_ || brake_deceleration_ <= 0.0) return true;
+    float max_speed = 0.0F;
+    for (float value : velocity) max_speed = std::max(max_speed, std::abs(value));
+    if (max_speed < 1e-3F) return true;
+
+    const float dt = active_dt_ > 0.0F ? active_dt_ : 0.03F;
+    const std::size_t count = static_cast<std::size_t>(steps_) * dof_;
+    std::vector<float> bq(count), bv(count), ba(count), bj(count);
+    std::vector<float> previous_a(static_cast<std::size_t>(dof_), 0.0F);
+    for (int i = 0; i < steps_; ++i) {
+      const float t = static_cast<float>(i) * dt;
+      for (int j = 0; j < dof_; ++j) {
+        const float v0 = velocity[j];
+        const float a = -std::copysign(static_cast<float>(brake_deceleration_), v0);
+        const float stop_time = std::abs(v0) / static_cast<float>(brake_deceleration_);
+        const float tj = std::min(t, stop_time);
+        const std::size_t index = static_cast<std::size_t>(i) * dof_ + j;
+        bq[index] = q[j] + v0 * tj + 0.5F * a * tj * tj;
+        bv[index] = t >= stop_time ? 0.0F : v0 + a * t;
+        ba[index] = t >= stop_time ? 0.0F : a;
+        bj[index] = (ba[index] - previous_a[j]) / dt;
+        previous_a[j] = ba[index];
+      }
+    }
+    check_cuda(cudaMemcpy(d_brake_q_, bq.data(), count * sizeof(float),
+                          cudaMemcpyHostToDevice), "brake q");
+    check_cuda(cudaMemcpy(d_brake_v_, bv.data(), count * sizeof(float),
+                          cudaMemcpyHostToDevice), "brake v");
+    check_cuda(cudaMemcpy(d_brake_a_, ba.data(), count * sizeof(float),
+                          cudaMemcpyHostToDevice), "brake a");
+    check_cuda(cudaMemcpy(d_brake_j_, bj.data(), count * sizeof(float),
+                          cudaMemcpyHostToDevice), "brake j");
+    return mpc_->validate_trajectory(d_brake_q_, d_brake_v_, d_brake_a_, d_brake_j_, dt);
+  }
+
+  void accept_callback() {
+    std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
+    std::string reason;
+    if (!admission_ok(reason)) {
+      set_status("holding: " + reason);
+      return;
+    }
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      mpc_->accept();
+      active_ = proposal_;
+      active_dt_ = proposal_dt_;
+      active_start_ = std::chrono::steady_clock::now();
+      has_active_ = true;
+      proposal_fresh_ = false;
+      executed_knots_ = std::min(knots_, executed_knots_ + knots_per_interval_);
+      ++handoffs_;
+    }
+    set_status("tracking");
   }
 
   void stream_callback() {
@@ -388,6 +527,10 @@ class MpcNode : public rclcpp::Node {
   double control_rate_ = 30.0;
   double command_rate_ = 100.0;
   double command_interval_ = 0.24;
+  double state_timeout_ = 0.2;
+  double max_tracking_error_ = 0.05;
+  double brake_deceleration_ = 2.0;
+  bool brake_check_ = true;
   double knot_dt_ = 0.12;
   int knots_per_interval_ = 2;
   int dof_ = 0;
@@ -404,6 +547,7 @@ class MpcNode : public rclcpp::Node {
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr fault_sub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_srv_;
   rclcpp::TimerBase::SharedPtr accept_timer_;
   rclcpp::TimerBase::SharedPtr stream_timer_;
@@ -418,7 +562,10 @@ class MpcNode : public rclcpp::Node {
   std::mutex data_mutex_;
   std::mutex status_mutex_;
   std::unordered_map<std::string, float> state_;
+  std::unordered_map<std::string, float> velocity_;
   bool has_state_ = false;
+  bool fault_ = false;
+  std::chrono::steady_clock::time_point last_state_time_{};
 
   bool active_goal_ = false;
   bool proposal_fresh_ = false;
@@ -439,6 +586,10 @@ class MpcNode : public rclcpp::Node {
   float* d_goal_pos_ = nullptr;
   float* d_goal_quat_ = nullptr;
   float* d_seed_ = nullptr;
+  float* d_brake_q_ = nullptr;
+  float* d_brake_v_ = nullptr;
+  float* d_brake_a_ = nullptr;
+  float* d_brake_j_ = nullptr;
 };
 
 }  // namespace curobo_ros_cpp

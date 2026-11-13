@@ -108,9 +108,20 @@ ros2 launch curobo_mpc_cpp mpc.launch.py \
   artifact_dir:=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts/franka
 ```
 
+Admission checks before `accept()`:
+
+- state freshness (`state_timeout`, default 0.2 s);
+- fault input (`/curobo_mpc/fault`, `std_msgs/Bool`);
+- tracking error against the active horizon (`max_tracking_error`);
+- brake feasibility from the current q/v (`brake_check`,
+  `brake_deceleration`); a zero-velocity state passes without a brake solve.
+
+For FPC there is no action ACK, so state freshness + tracking error is the
+synthetic ACK. For JTC a real action result should replace it.
+
 Current limitations:
 
-- admission is only validation + freshness, not a real ACK/fault/brake check;
+- no real controller ACK yet; fault is an external Bool input;
 - no terminal-pose convergence check; cancel manually;
 - the producer uses a 30 Hz target timer, while official curobo_ros runs the
   producer loop as fast as possible and only paces sends; the wall-clock solve

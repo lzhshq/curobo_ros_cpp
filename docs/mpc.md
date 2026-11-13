@@ -217,7 +217,7 @@ The first live target calls `reset_cartesian()`; subsequent targets call
 Demo:
 
 ```bash
-ros2 launch curobo_mpc_cpp franka_mpc_circle.launch.py
+ros2 launch curobo_mpc_cpp unified_franka_circle.launch.py
 ```
 
 It tracks a YZ circle:

@@ -1,7 +1,7 @@
 # Interactive bat obstacle demo
 
-A Franka MPC demo with a bat-like capsule obstacle that can be dragged in the
-RViz Y/Z plane.
+A Franka MPC demo with a bat-like capsule obstacle that moves automatically
+along world Z.
 
 ## Control
 
@@ -21,10 +21,8 @@ ros2 launch curobo_planner_cpp rviz.launch.py \
   show_robot:=true show_ghost:=true
 ```
 
-In RViz, enable the `BatControl` InteractiveMarkers display (it is included in
-`planner.rviz`). Hover the orange bat and drag the Y/Z axis handles. The marker
-publishes `/curobo_world/obstacle_update`; the MPC node applies it to its scene before
-each `step()`.
+The marker publishes `/curobo_world/obstacle_update`; the MPC node applies it to
+its scene before each `step()`. No manual dragging is required.
 
 ![RViz bat marker](images/rviz_bat_demo.png)
 
@@ -32,11 +30,8 @@ each `step()`.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `bat_length` | 0.6 | capsule tip-to-tip length |
-| `bat_radius` | 0.03 | capsule radius |
-| `bat_initial_x` | 0.45 | fixed X |
-| `bat_initial_y` | 0.0 | initial Y |
-| `bat_initial_z` | 0.55 | initial Z |
+| `bat_length` | 0.6 | bat marker capsule tip-to-tip length |
+| `bat_radius` | 0.03 | bat marker capsule radius |
 | `world_topic` | `/curobo_world/obstacle_update` | generic obstacle input |
 
 ## Important

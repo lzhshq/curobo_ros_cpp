@@ -10,16 +10,10 @@ curobo_mpc:
     control_rate: 30.0
     command_interval: 0.48
     state_timeout: 0.2
-    max_tracking_error: 0.05
     brake_check: true
     brake_deceleration: 2.0
     fault_topic: /curobo_mpc/fault
     world_topic: /curobo_world/obstacle_update
-    bat_length: 0.4
-    bat_radius: 0.03
-    bat_initial_x: 0.30
-    bat_initial_y: 0.0
-    bat_initial_z: 0.30
     adapter: segment
     publish_rate: 100.0
     command_topic: /position_forward_controller/commands

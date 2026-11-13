@@ -30,10 +30,7 @@
 #include "curobo_msgs/srv/trajectory_generation.hpp"
 #include "curobo_msgs/msg/mpc_costs.hpp"
 #include "nav_msgs/msg/path.hpp"
-#include "tf2/convert.h"
-#include "tf2/time.h"
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
+#include "tf2/LinearMath/Quaternion.h"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
@@ -99,15 +96,10 @@ class MpcNode : public rclcpp::Node {
     control_rate_ = this->declare_parameter<double>("control_rate", 30.0);
     command_interval_ = this->declare_parameter<double>("command_interval", 0.48);
     adapter_name_ = this->declare_parameter<std::string>("adapter", "segment");
-    action_ = this->declare_parameter<std::string>(
-        "action", "/position_joint_trajectory_controller/follow_joint_trajectory");
     execution_action_ = this->declare_parameter<std::string>(
         "execution_action", "/curobo_execution/execute_segment");
     publish_rate_ = this->declare_parameter<double>("publish_rate", 100.0);
-    goal_tolerance_ = this->declare_parameter<double>("goal_tolerance", 0.02);
-    goal_time_tolerance_ = this->declare_parameter<double>("goal_time_tolerance", 2.0);
     state_timeout_ = this->declare_parameter<double>("state_timeout", 0.2);
-    max_tracking_error_ = this->declare_parameter<double>("max_tracking_error", 0.05);
     brake_check_ = this->declare_parameter<bool>("brake_check", true);
     brake_deceleration_ = this->declare_parameter<double>("brake_deceleration", 2.0);
     const std::string fault_topic = this->declare_parameter<std::string>(
@@ -118,11 +110,6 @@ class MpcNode : public rclcpp::Node {
         "live_goal_topic", "/curobo_mpc/live_goal");
     base_frame_ = this->declare_parameter<std::string>("base_frame", "panda_link0");
     tool_frame_ = this->declare_parameter<std::string>("tool_frame", "panda_hand");
-    bat_length_ = this->declare_parameter<double>("bat_length", 0.4);
-    bat_radius_ = this->declare_parameter<double>("bat_radius", 0.03);
-    bat_initial_x_ = this->declare_parameter<double>("bat_initial_x", 0.45);
-    bat_initial_y_ = this->declare_parameter<double>("bat_initial_y", 0.0);
-    bat_initial_z_ = this->declare_parameter<double>("bat_initial_z", 0.55);
     planner_distance_threshold_ = this->declare_parameter<double>(
         "planner_distance_threshold", 0.15);
     far_replan_period_ = this->declare_parameter<double>(
@@ -334,8 +321,6 @@ class MpcNode : public rclcpp::Node {
         std::bind(&MpcNode::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
         std::bind(&MpcNode::handle_cancel, this, std::placeholders::_1),
         std::bind(&MpcNode::handle_accepted, this, std::placeholders::_1));
-    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
-    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
     cancel_srv_ = this->create_service<std_srvs::srv::Trigger>(
         "~/cancel", std::bind(&MpcNode::cancel_callback, this, std::placeholders::_1,
                               std::placeholders::_2));
@@ -1424,7 +1409,6 @@ class MpcNode : public rclcpp::Node {
   std::string artifact_dir_;
   std::string command_topic_;
   std::string adapter_name_;
-  std::string action_;
   std::string execution_action_;
   std::string world_topic_;
   std::string live_goal_topic_;
@@ -1434,18 +1418,10 @@ class MpcNode : public rclcpp::Node {
   std::atomic<bool> action_active_{false};
   int feedback_hold_count_ = 0;
   geometry_msgs::msg::Pose action_target_;
-  double bat_length_ = 0.6;
-  double bat_radius_ = 0.03;
-  double bat_initial_x_ = 0.45;
-  double bat_initial_y_ = 0.0;
-  double bat_initial_z_ = 0.55;
   double publish_rate_ = 100.0;
-  double goal_tolerance_ = 0.02;
-  double goal_time_tolerance_ = 2.0;
   double control_rate_ = 30.0;
   double command_interval_ = 0.48;
   double state_timeout_ = 0.2;
-  double max_tracking_error_ = 0.05;
   double brake_deceleration_ = 2.0;
   bool brake_check_ = true;
   double knot_dt_ = 0.12;
@@ -1481,8 +1457,6 @@ class MpcNode : public rclcpp::Node {
   rclcpp::Service<curobo_msgs::srv::TrajectoryGeneration>::SharedPtr generate_srv_;
   rclcpp_action::Server<SendTrajectory>::SharedPtr action_server_;
   rclcpp::TimerBase::SharedPtr action_feedback_timer_;
-  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
-  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr mpc_goal_sub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr live_goal_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;

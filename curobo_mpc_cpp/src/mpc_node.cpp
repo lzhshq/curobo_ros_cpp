@@ -38,6 +38,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "visualization_msgs/msg/marker.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
@@ -282,6 +283,8 @@ class MpcNode : public rclcpp::Node {
         std::bind(&MpcNode::live_goal_callback, this, std::placeholders::_1));
     live_goal_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
         live_goal_topic_, 10);
+    marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>(
+        "/mpc_goal_marker", 10);
     mpc_goal_sub_ = this->create_subscription<geometry_msgs::msg::Pose>(
         "/unified_planner/mpc_goal", 10,
         std::bind(&MpcNode::mpc_goal_callback, this, std::placeholders::_1));
@@ -1147,12 +1150,28 @@ class MpcNode : public rclcpp::Node {
     response->dt = 0.0;
   }
 
+  void publish_goal_marker(const geometry_msgs::msg::Pose& pose) {
+    visualization_msgs::msg::Marker marker;
+    marker.header.frame_id = base_frame_;
+    marker.header.stamp = this->now();
+    marker.ns = "mpc_goal";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::SPHERE;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose = pose;
+    marker.scale.x = marker.scale.y = marker.scale.z = 0.04;
+    marker.color.g = 1.0;
+    marker.color.a = 0.8;
+    marker_pub_->publish(marker);
+  }
+
   void mpc_goal_callback(const geometry_msgs::msg::Pose::SharedPtr message) {
     if (!action_active_) {
       RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                            "mpc_goal ignored: no active execute_trajectory action");
       return;
     }
+    publish_goal_marker(*message);
     auto stamped = std::make_shared<geometry_msgs::msg::PoseStamped>(
         make_pose_stamped(*message));
     live_goal_callback(stamped);
@@ -1181,7 +1200,9 @@ class MpcNode : public rclcpp::Node {
 
   void handle_accepted(const std::shared_ptr<GoalHandle> goal_handle) {
     action_active_ = true;
+    feedback_hold_count_ = 0;
     action_target_ = goal_handle->get_goal()->target_pose;
+    publish_goal_marker(action_target_);
     live_goal_pub_->publish(make_pose_stamped(action_target_));
     action_feedback_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(33),
@@ -1192,8 +1213,35 @@ class MpcNode : public rclcpp::Node {
     if (!action_active_) return;
     auto feedback = std::make_shared<SendTrajectory::Feedback>();
     feedback->state = "TRACKING";
-    feedback->position_error = 0.0;
-    feedback->on_target = false;
+    geometry_msgs::msg::TransformStamped transform;
+    try {
+      // TimePointZero + zero timeout: never block the single-thread executor.
+      transform = tf_buffer_->lookupTransform(
+          base_frame_, tool_frame_, tf2::TimePointZero,
+          tf2::durationFromSec(0.0));
+    } catch (const std::exception&) {
+      feedback->position_error = -1.0;
+      feedback->on_target = false;
+      goal_handle->publish_feedback(feedback);
+      return;
+    }
+    const auto& p = transform.transform.translation;
+    const double dx = p.x - action_target_.position.x;
+    const double dy = p.y - action_target_.position.y;
+    const double dz = p.z - action_target_.position.z;
+    feedback->position_error_x = dx;
+    feedback->position_error_y = dy;
+    feedback->position_error_z = dz;
+    feedback->position_error = std::sqrt(dx * dx + dy * dy + dz * dz);
+    const auto& q = transform.transform.rotation;
+    tf2::Quaternion current(q.x, q.y, q.z, q.w);
+    tf2::Quaternion goal(action_target_.orientation.x, action_target_.orientation.y,
+                         action_target_.orientation.z, action_target_.orientation.w);
+    feedback->orientation_error = current.angleShortestPath(goal);
+    feedback->on_target = feedback->position_error < 0.01 &&
+                          feedback->orientation_error < 0.20;
+    feedback->hold_count = feedback->on_target ? feedback_hold_count_++ : (feedback_hold_count_ = 0);
+    if (feedback->on_target) feedback->state = "ON_TARGET";
     goal_handle->publish_feedback(feedback);
   }
 
@@ -1221,6 +1269,7 @@ class MpcNode : public rclcpp::Node {
   std::string tool_frame_;
   std::string current_planner_ = "Model Predictive Control (MPC)";
   std::atomic<bool> action_active_{false};
+  int feedback_hold_count_ = 0;
   geometry_msgs::msg::Pose action_target_;
   double bat_length_ = 0.6;
   double bat_radius_ = 0.03;
@@ -1271,6 +1320,7 @@ class MpcNode : public rclcpp::Node {
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr mpc_goal_sub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr live_goal_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
   rclcpp::TimerBase::SharedPtr accept_timer_;
   rclcpp::TimerBase::SharedPtr far_replan_timer_;
   std::thread producer_;

@@ -46,7 +46,7 @@ class BatMarker(Node):
         marker = InteractiveMarker()
         marker.header.frame_id = self.frame_id
         marker.name = 'bat'
-        marker.description = 'bat: automatic Z' if self.auto_motion else 'bat: drag Z'
+        marker.description = 'bat: automatic Z'
         marker.scale = 0.4
         marker.pose.position.x = self.fixed_x
         marker.pose.position.y = self.initial_y
@@ -56,7 +56,9 @@ class BatMarker(Node):
         self.marker_name = marker.name
 
         visual = Marker()
-        visual.type = Marker.CYLINDER
+        # A cube makes the long axis explicit in world X; a cylinder's local
+        # axis is Z and can be rotated again by the interactive control frame.
+        visual.type = Marker.CUBE
         visual.scale.x = 2.0 * self.radius
         visual.scale.y = 2.0 * self.radius
         visual.scale.z = self.length
@@ -64,23 +66,18 @@ class BatMarker(Node):
         visual.color.g = 0.45
         visual.color.b = 0.05
         visual.color.a = 0.85
-        # Rotate the cylinder's local z axis onto world x.
-        visual.pose.orientation.y = math.sin(math.pi / 4.0)
-        visual.pose.orientation.w = math.cos(math.pi / 4.0)
+        visual.pose.orientation.w = 1.0
+        # Demo bat is automatic only: render the visual in an identity control
+        # and expose no drag handles.
+        visual_control = InteractiveMarkerControl()
+        visual_control.always_visible = True
+        visual_control.interaction_mode = InteractiveMarkerControl.NONE
+        visual_control.orientation.w = 1.0
+        visual_control.name = 'bat_visual'
+        visual_control.markers.append(visual)
+        marker.controls.append(visual_control)
 
-        # Z is the only draggable axis; X/Y are fixed by the feedback callback.
-        handle_z = InteractiveMarkerControl()
-        handle_z.always_visible = True
-        handle_z.interaction_mode = InteractiveMarkerControl.MOVE_AXIS
-        # RViz's MOVE_AXIS uses the matching quaternion component to select the
-        # world axis; y=1 is the Z handle for this setup.
-        handle_z.orientation.w = 1.0
-        handle_z.orientation.y = 1.0
-        handle_z.name = 'move_z'
-        handle_z.markers.append(visual)
-        marker.controls.append(handle_z)
-
-        self.server.insert(marker, feedback_callback=self.feedback)
+        self.server.insert(marker)
         self.server.applyChanges()
         self.publish_update(ObstacleUpdate.ADD, marker.pose)
         if self.auto_motion:

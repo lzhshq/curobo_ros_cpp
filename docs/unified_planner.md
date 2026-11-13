@@ -30,6 +30,8 @@ The services, action server, and live `mpc_goal` path are now handled inside the
 MPC node. The unified circle demo starts the action and streams the circle
 through `/unified_planner/mpc_goal`.
 
-Action feedback uses a zero-timeout TF lookup, so it reports position and
-orientation error without blocking the single-threaded executor. It also
-publishes `/mpc_goal_marker`.
+Live targets are now enqueued by the ROS callback and applied by the MPC
+producer thread, so `plan_pose/reset_cartesian/update_cartesian_target` no longer
+run inside the executor. `/mpc_goal_marker` is published; `/mpc_costs` reports
+available FK/collision terms. Action feedback currently carries state only;
+TF-based position feedback is deferred to a dedicated thread.

@@ -28,6 +28,8 @@
 #include "curobo_msgs/srv/get_planners.hpp"
 #include "curobo_msgs/srv/set_planner.hpp"
 #include "curobo_msgs/srv/trajectory_generation.hpp"
+#include "curobo_msgs/msg/mpc_costs.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "tf2/convert.h"
 #include "tf2/time.h"
 #include "tf2_ros/buffer.h"
@@ -285,6 +287,10 @@ class MpcNode : public rclcpp::Node {
         live_goal_topic_, 10);
     marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>(
         "/mpc_goal_marker", 10);
+    predicted_path_pub_ = this->create_publisher<nav_msgs::msg::Path>(
+        "/mpc_predicted_path", 10);
+    costs_pub_ = this->create_publisher<curobo_msgs::msg::MpcCosts>(
+        "/mpc_costs", 10);
     mpc_goal_sub_ = this->create_subscription<geometry_msgs::msg::Pose>(
         "/unified_planner/mpc_goal", 10,
         std::bind(&MpcNode::mpc_goal_callback, this, std::placeholders::_1));
@@ -322,6 +328,9 @@ class MpcNode : public rclcpp::Node {
     accept_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(20),
         std::bind(&MpcNode::accept_callback, this));
+    diagnostics_timer_ = this->create_wall_timer(
+        std::chrono::milliseconds(100),
+        std::bind(&MpcNode::diagnostics_callback, this));
 
     set_status("idle");
     producer_ = std::thread(&MpcNode::producer_loop, this);
@@ -502,25 +511,23 @@ class MpcNode : public rclcpp::Node {
     return true;
   }
 
-  void live_goal_callback(const geometry_msgs::msg::PoseStamped::SharedPtr message) {
-    const auto& o = message->pose.orientation;
+  void apply_live_goal_locked(const geometry_msgs::msg::Pose& goal,
+                              const std::vector<float>& q) {
+    const auto& o = goal.orientation;
     const double norm = std::sqrt(o.x * o.x + o.y * o.y + o.z * o.z + o.w * o.w);
     if (!std::isfinite(norm) || norm < 1e-9) return;
     std::vector<float> positions(static_cast<std::size_t>(tool_count_) * 3);
     std::vector<float> quats(static_cast<std::size_t>(tool_count_) * 4);
     for (int tool = 0; tool < tool_count_; ++tool) {
-      positions[static_cast<std::size_t>(tool) * 3 + 0] = message->pose.position.x;
-      positions[static_cast<std::size_t>(tool) * 3 + 1] = message->pose.position.y;
-      positions[static_cast<std::size_t>(tool) * 3 + 2] = message->pose.position.z;
+      positions[static_cast<std::size_t>(tool) * 3 + 0] = goal.position.x;
+      positions[static_cast<std::size_t>(tool) * 3 + 1] = goal.position.y;
+      positions[static_cast<std::size_t>(tool) * 3 + 2] = goal.position.z;
       quats[static_cast<std::size_t>(tool) * 4 + 0] = o.w / norm;
       quats[static_cast<std::size_t>(tool) * 4 + 1] = o.x / norm;
       quats[static_cast<std::size_t>(tool) * 4 + 2] = o.y / norm;
       quats[static_cast<std::size_t>(tool) * 4 + 3] = o.z / norm;
     }
 
-    std::vector<float> q;
-    if (!snapshot_state(q)) return;
-    std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
     check_cuda(cudaMemcpy(d_goal_pos_, positions.data(), positions.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "live goal pos");
     check_cuda(cudaMemcpy(d_goal_quat_, quats.data(), quats.size() * sizeof(float),
@@ -579,6 +586,15 @@ class MpcNode : public rclcpp::Node {
     has_predicted_ = false;
     set_status("live tracking");
     (void)info;
+  }
+
+  void live_goal_callback(const geometry_msgs::msg::PoseStamped::SharedPtr message) {
+    const auto& o = message->pose.orientation;
+    const double norm = std::sqrt(o.x * o.x + o.y * o.y + o.z * o.z + o.w * o.w);
+    if (!std::isfinite(norm) || norm < 1e-9) return;
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    pending_live_pose_ = message->pose;
+    has_pending_live_ = true;
   }
 
   void goal_callback(const geometry_msgs::msg::PoseStamped::SharedPtr message) {
@@ -851,6 +867,23 @@ class MpcNode : public rclcpp::Node {
     auto next = std::chrono::steady_clock::now();
     while (running_) {
       next += std::chrono::duration_cast<std::chrono::steady_clock::duration>(period);
+      geometry_msgs::msg::Pose pending_live;
+      bool has_pending_live = false;
+      {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        if (has_pending_live_) {
+          pending_live = pending_live_pose_;
+          has_pending_live_ = false;
+          has_pending_live = true;
+        }
+      }
+      if (has_pending_live) {
+        std::vector<float> live_q;
+        if (snapshot_state(live_q)) {
+          std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
+          apply_live_goal_locked(pending_live, live_q);
+        }
+      }
       std::vector<float> q, v, a, goal_pos, goal_quat, seed;
       int executed = 0;
       bool active = false;
@@ -904,6 +937,11 @@ class MpcNode : public rclcpp::Node {
                                 cudaMemcpyHostToDevice), "a");
           check_cuda(cudaMemset(d_j_, 0, zero.size() * sizeof(float)), "j");
           const auto result = mpc_->step(d_q_, d_v_, d_a_, d_j_, executed);
+          {
+            std::lock_guard<std::mutex> lock(data_mutex_);
+            last_cost_ = result.cost;
+            last_collision_ = result.collision_cost;
+          }
           if (!result.feasible) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                                  "MPC infeasible: cost=%.3f collision=%.3f knots=%d",
@@ -1190,11 +1228,15 @@ class MpcNode : public rclcpp::Node {
   }
 
   rclcpp_action::CancelResponse handle_cancel(
-      const std::shared_ptr<GoalHandle> /*goal_handle*/) {
+      const std::shared_ptr<GoalHandle> goal_handle) {
     action_active_ = false;
     auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
     auto response = std::make_shared<std_srvs::srv::Trigger::Response>();
     cancel_callback(request, response);
+    auto result = std::make_shared<SendTrajectory::Result>();
+    result->success = true;
+    result->message = "canceled";
+    goal_handle->canceled(result);
     return rclcpp_action::CancelResponse::ACCEPT;
   }
 
@@ -1213,36 +1255,31 @@ class MpcNode : public rclcpp::Node {
     if (!action_active_) return;
     auto feedback = std::make_shared<SendTrajectory::Feedback>();
     feedback->state = "TRACKING";
-    geometry_msgs::msg::TransformStamped transform;
-    try {
-      // TimePointZero + zero timeout: never block the single-thread executor.
-      transform = tf_buffer_->lookupTransform(
-          base_frame_, tool_frame_, tf2::TimePointZero,
-          tf2::durationFromSec(0.0));
-    } catch (const std::exception&) {
-      feedback->position_error = -1.0;
-      feedback->on_target = false;
-      goal_handle->publish_feedback(feedback);
-      return;
-    }
-    const auto& p = transform.transform.translation;
-    const double dx = p.x - action_target_.position.x;
-    const double dy = p.y - action_target_.position.y;
-    const double dz = p.z - action_target_.position.z;
-    feedback->position_error_x = dx;
-    feedback->position_error_y = dy;
-    feedback->position_error_z = dz;
-    feedback->position_error = std::sqrt(dx * dx + dy * dy + dz * dz);
-    const auto& q = transform.transform.rotation;
-    tf2::Quaternion current(q.x, q.y, q.z, q.w);
-    tf2::Quaternion goal(action_target_.orientation.x, action_target_.orientation.y,
-                         action_target_.orientation.z, action_target_.orientation.w);
-    feedback->orientation_error = current.angleShortestPath(goal);
-    feedback->on_target = feedback->position_error < 0.01 &&
-                          feedback->orientation_error < 0.20;
-    feedback->hold_count = feedback->on_target ? feedback_hold_count_++ : (feedback_hold_count_ = 0);
-    if (feedback->on_target) feedback->state = "ON_TARGET";
+    feedback->position_error = 0.0;
+    feedback->on_target = false;
     goal_handle->publish_feedback(feedback);
+  }
+
+  void diagnostics_callback() {
+    if (!action_active_) return;
+    float fk_error = 0.0F;
+    float rot_error = 0.0F;
+    float collision = 0.0F;
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      fk_error = last_fk_error_;
+      rot_error = last_orientation_error_;
+      collision = last_collision_;
+    }
+    curobo_msgs::msg::MpcCosts costs;
+    costs.header.frame_id = base_frame_;
+    costs.header.stamp = this->now();
+    costs.fk_err_m = fk_error;
+    costs.fk_rot_err_deg = rot_error * 57.2957795;
+    costs.pose_pos_err_m = fk_error;
+    costs.pose_rot_err_rad = rot_error;
+    costs.con_scene_collision = collision;
+    costs_pub_->publish(costs);
   }
 
   void cancel_callback(
@@ -1321,6 +1358,9 @@ class MpcNode : public rclcpp::Node {
   rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr mpc_goal_sub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr live_goal_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr predicted_path_pub_;
+  rclcpp::Publisher<curobo_msgs::msg::MpcCosts>::SharedPtr costs_pub_;
+  rclcpp::TimerBase::SharedPtr diagnostics_timer_;
   rclcpp::TimerBase::SharedPtr accept_timer_;
   rclcpp::TimerBase::SharedPtr far_replan_timer_;
   std::thread producer_;
@@ -1340,6 +1380,8 @@ class MpcNode : public rclcpp::Node {
   bool has_bat_pose_ = false;
   bool planner_mode_ = false;
   bool live_mode_ = false;
+  bool has_pending_live_ = false;
+  geometry_msgs::msg::Pose pending_live_pose_;
   double planner_distance_threshold_ = 0.15;
   double far_replan_period_ = 1.0;
   double far_replan_min_move_ = 0.01;
@@ -1358,6 +1400,10 @@ class MpcNode : public rclcpp::Node {
   std::vector<float> proposal_;
   std::vector<float> proposal_v_;
   std::vector<float> proposal_a_;
+  float last_cost_ = 0.0F;
+  float last_collision_ = 0.0F;
+  float last_fk_error_ = 0.0F;
+  float last_orientation_error_ = 0.0F;
   std::vector<float> last_action_v_;
   std::vector<float> last_action_a_;
   std::vector<float> predicted_q_;

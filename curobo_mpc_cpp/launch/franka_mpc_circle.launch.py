@@ -40,7 +40,7 @@ def generate_launch_description():
                 'center_y': 0.0,
                 'center_z': 0.637,
                 'radius': 0.04,
-                'period': 5.0,
-                'rate': 10.0,
+                'period': 10.0,
+                'rate': 20.0,
             }])]),
     ])

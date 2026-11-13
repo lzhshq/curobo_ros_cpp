@@ -43,6 +43,16 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /curobo_planner/planned_path
       Value: false
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: CirclePath
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /curobo_demo/circle_path
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: PlannedMarkers

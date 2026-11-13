@@ -96,6 +96,13 @@ class MpcNode : public rclcpp::Node {
     brake_deceleration_ = this->declare_parameter<double>("brake_deceleration", 2.0);
     const std::string fault_topic = this->declare_parameter<std::string>(
         "fault_topic", "/curobo_mpc/fault");
+    bat_topic_ = this->declare_parameter<std::string>(
+        "bat_topic", "/curobo_demo/bat_pose");
+    bat_length_ = this->declare_parameter<double>("bat_length", 0.6);
+    bat_radius_ = this->declare_parameter<double>("bat_radius", 0.03);
+    bat_initial_x_ = this->declare_parameter<double>("bat_initial_x", 0.45);
+    bat_initial_y_ = this->declare_parameter<double>("bat_initial_y", 0.0);
+    bat_initial_z_ = this->declare_parameter<double>("bat_initial_z", 0.55);
     const double trajectory_dt =
         this->declare_parameter<double>("trajectory_dt", 0.03);
     const auto controller_joints = this->declare_parameter<std::vector<std::string>>(
@@ -196,6 +203,8 @@ class MpcNode : public rclcpp::Node {
                               std::placeholders::_2));
     fault_sub_ = this->create_subscription<std_msgs::msg::Bool>(
         fault_topic, 10, std::bind(&MpcNode::fault_callback, this, std::placeholders::_1));
+    bat_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        bat_topic_, 10, std::bind(&MpcNode::bat_callback, this, std::placeholders::_1));
     accept_timer_ = this->create_wall_timer(
         std::chrono::duration<double>(std::max(command_interval_, 1e-3)),
         std::bind(&MpcNode::accept_callback, this));
@@ -282,6 +291,22 @@ class MpcNode : public rclcpp::Node {
     if (fault_) set_status("fault");
   }
 
+  void bat_callback(const geometry_msgs::msg::PoseStamped::SharedPtr message) {
+    const auto& o = message->pose.orientation;
+    const double norm = std::sqrt(o.x * o.x + o.y * o.y + o.z * o.z + o.w * o.w);
+    if (!std::isfinite(norm) || norm < 1e-9) return;
+    curobo::robot::Pose pose;
+    pose.position = {static_cast<float>(message->pose.position.x),
+                     static_cast<float>(message->pose.position.y),
+                     static_cast<float>(message->pose.position.z)};
+    pose.position[0] = static_cast<float>(bat_initial_x_);
+    pose.quaternion = {static_cast<float>(o.w / norm), static_cast<float>(o.x / norm),
+                       static_cast<float>(o.y / norm), static_cast<float>(o.z / norm)};
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    bat_pose_ = pose;
+    has_bat_pose_ = true;
+  }
+
   bool snapshot_state(std::vector<float>& q) {
     std::lock_guard<std::mutex> lock(data_mutex_);
     if (!has_state_) return false;
@@ -351,10 +376,14 @@ class MpcNode : public rclcpp::Node {
       std::vector<float> q, goal_pos, goal_quat, seed;
       int executed = 0;
       bool active = false;
+      curobo::robot::Pose bat_pose;
+      bool has_bat = false;
       {
         std::lock_guard<std::mutex> lock(data_mutex_);
         active = active_goal_;
         executed = executed_knots_;
+        bat_pose = bat_pose_;
+        has_bat = has_bat_pose_;
         if (active && has_state_) {
           q.resize(static_cast<std::size_t>(dof_));
           for (int i = 0; i < dof_; ++i) {
@@ -369,6 +398,9 @@ class MpcNode : public rclcpp::Node {
       if (active) {
         try {
           std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
+          if (has_bat && bat_handle_.valid()) {
+            scene_->update_obstacle_pose(bat_handle_, bat_pose);
+          }
           std::vector<float> zero(static_cast<std::size_t>(dof_), 0.0F);
           check_cuda(cudaMemcpy(d_q_, q.data(), q.size() * sizeof(float),
                                 cudaMemcpyHostToDevice), "q");
@@ -549,6 +581,12 @@ class MpcNode : public rclcpp::Node {
   std::string command_topic_;
   std::string adapter_name_;
   std::string action_;
+  std::string bat_topic_;
+  double bat_length_ = 0.6;
+  double bat_radius_ = 0.03;
+  double bat_initial_x_ = 0.45;
+  double bat_initial_y_ = 0.0;
+  double bat_initial_z_ = 0.55;
   double publish_rate_ = 100.0;
   double goal_tolerance_ = 0.02;
   double goal_time_tolerance_ = 2.0;
@@ -575,6 +613,7 @@ class MpcNode : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr fault_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr bat_sub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_srv_;
   rclcpp::TimerBase::SharedPtr accept_timer_;
   std::thread producer_;
@@ -591,6 +630,9 @@ class MpcNode : public rclcpp::Node {
   std::unordered_map<std::string, float> velocity_;
   bool has_state_ = false;
   bool fault_ = false;
+  bool has_bat_pose_ = false;
+  curobo::robot::Pose bat_pose_;
+  curobo::robot::ObstacleHandle bat_handle_;
   std::chrono::steady_clock::time_point last_state_time_{};
 
   bool active_goal_ = false;

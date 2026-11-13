@@ -45,6 +45,10 @@ set_target_properties(mpc_node PROPERTIES
   BUILD_RPATH "${CUROBO_RUNTIME_ROOT}/build/robot")
 
 install(TARGETS mpc_node DESTINATION lib/${PROJECT_NAME})
+
+install(PROGRAMS tools/bat_marker.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME bat_marker)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 ament_package()

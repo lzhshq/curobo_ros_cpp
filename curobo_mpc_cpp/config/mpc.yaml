@@ -9,6 +9,12 @@ curobo_mpc:
     brake_check: true
     brake_deceleration: 2.0
     fault_topic: /curobo_mpc/fault
+    bat_topic: /curobo_demo/bat_pose
+    bat_length: 0.6
+    bat_radius: 0.03
+    bat_initial_x: 0.45
+    bat_initial_y: 0.0
+    bat_initial_z: 0.55
     adapter: fpc
     publish_rate: 100.0
     command_topic: /position_forward_controller/commands

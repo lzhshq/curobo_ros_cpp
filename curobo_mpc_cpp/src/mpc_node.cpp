@@ -530,6 +530,8 @@ class MpcNode : public rclcpp::Node {
     curobo::robot::MpcCartesianConfig objective;
     objective.constrain_path = false;
     mpc_->reset_cartesian(d_goal_pos_, d_goal_quat_, d_seed_, objective);
+    last_action_v_.assign(static_cast<std::size_t>(dof_), 0.0F);
+    last_action_a_.assign(static_cast<std::size_t>(dof_), 0.0F);
     live_mode_ = true;
     planner_mode_ = false;
     active_goal_ = true;
@@ -566,6 +568,8 @@ class MpcNode : public rclcpp::Node {
     std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
     planner_mode_ = false;
     live_mode_ = false;
+    last_action_v_.assign(static_cast<std::size_t>(dof_), 0.0F);
+    last_action_a_.assign(static_cast<std::size_t>(dof_), 0.0F);
     check_cuda(cudaMemcpy(d_goal_pos_, positions.data(), positions.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "goal pos");
     check_cuda(cudaMemcpy(d_goal_quat_, quats.data(), quats.size() * sizeof(float),
@@ -824,9 +828,13 @@ class MpcNode : public rclcpp::Node {
           v.assign(static_cast<std::size_t>(dof_), 0.0F);
           a.assign(static_cast<std::size_t>(dof_), 0.0F);
           for (int i = 0; i < dof_; ++i) {
-            const auto it = state_.find(kinematics_->joint_name(i));
-            if (it == state_.end()) { active = false; break; }
-            q[i] = it->second;
+            const std::string name = kinematics_->joint_name(i);
+            const auto q_it = state_.find(name);
+            if (q_it == state_.end()) { active = false; break; }
+            q[i] = q_it->second;
+            const auto v_it = velocity_.find(name);
+            v[i] = v_it != velocity_.end() ? v_it->second : last_action_v_[i];
+            a[i] = last_action_a_[i];
           }
         } else if (active && has_predicted_) {
           q = predicted_q_;
@@ -1031,6 +1039,12 @@ class MpcNode : public rclcpp::Node {
         predicted_a_[j] = proposal_a_[static_cast<std::size_t>(period_index) * dof_ + j];
       }
       has_predicted_ = true;
+      last_action_v_.resize(static_cast<std::size_t>(dof_));
+      last_action_a_.resize(static_cast<std::size_t>(dof_));
+      for (int j = 0; j < dof_; ++j) {
+        last_action_v_[j] = proposal_v_[static_cast<std::size_t>(period_index) * dof_ + j];
+        last_action_a_[j] = proposal_a_[static_cast<std::size_t>(period_index) * dof_ + j];
+      }
       mpc_->accept();
       active_ = proposal_;
       active_dt_ = proposal_dt_;
@@ -1142,6 +1156,8 @@ class MpcNode : public rclcpp::Node {
   std::vector<float> proposal_;
   std::vector<float> proposal_v_;
   std::vector<float> proposal_a_;
+  std::vector<float> last_action_v_;
+  std::vector<float> last_action_a_;
   std::vector<float> predicted_q_;
   std::vector<float> predicted_v_;
   std::vector<float> predicted_a_;

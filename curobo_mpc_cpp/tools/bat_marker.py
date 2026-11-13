@@ -21,7 +21,7 @@ class BatMarker(Node):
         super().__init__('bat_marker')
         self.frame_id = self.declare_parameter('frame_id', 'panda_link0').value
         self.fixed_x = float(self.declare_parameter('x', 0.30).value)
-        self.fixed_y = float(self.declare_parameter('y', 0.0).value)
+        self.initial_y = float(self.declare_parameter('y', 0.0).value)
         self.initial_z = float(self.declare_parameter('z', 0.30).value)
         self.length = float(self.declare_parameter('length', 0.4).value)
         self.radius = float(self.declare_parameter('radius', 0.03).value)
@@ -37,7 +37,7 @@ class BatMarker(Node):
         marker.description = 'bat: drag Y/Z'
         marker.scale = 0.4
         marker.pose.position.x = self.fixed_x
-        marker.pose.position.y = self.fixed_y
+        marker.pose.position.y = self.initial_y
         marker.pose.position.z = self.initial_z
         marker.pose.orientation.w = 1.0
 
@@ -54,7 +54,16 @@ class BatMarker(Node):
         visual.pose.orientation.y = math.sin(math.pi / 4.0)
         visual.pose.orientation.w = math.cos(math.pi / 4.0)
 
-        # Only Z is draggable. X and Y are fixed by the feedback callback.
+        # X is fixed; Y and Z are draggable.
+        handle_y = InteractiveMarkerControl()
+        handle_y.always_visible = True
+        handle_y.interaction_mode = InteractiveMarkerControl.MOVE_AXIS
+        handle_y.orientation.w = 1.0
+        handle_y.orientation.z = 1.0
+        handle_y.name = 'move_y'
+        handle_y.markers.append(visual)
+        marker.controls.append(handle_y)
+
         handle_z = InteractiveMarkerControl()
         handle_z.always_visible = True
         handle_z.interaction_mode = InteractiveMarkerControl.MOVE_AXIS
@@ -82,8 +91,7 @@ class BatMarker(Node):
 
     def feedback(self, feedback):
         pose = feedback.pose
-        pose.position.x = self.fixed_x  # only Z is editable
-        pose.position.y = self.fixed_y
+        pose.position.x = self.fixed_x  # only X is fixed
         self.server.setPose(feedback.marker_name, pose)
         self.server.applyChanges()
         self.publish_pose(pose, self.get_clock().now().to_msg())

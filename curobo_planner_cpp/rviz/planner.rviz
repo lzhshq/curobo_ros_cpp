@@ -77,7 +77,7 @@ Visualization Manager:
       Enabled: true
       Interactive Markers Namespace: /curobo_demo/bat
       Name: BatControl
-      Show Axes: true
+      Show Axes: false
       Show Descriptions: true
       Show Visual Aids: false
       Value: true

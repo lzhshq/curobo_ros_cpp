@@ -13,7 +13,7 @@ def generate_launch_description():
         DeclareLaunchArgument('x', default_value='0.30'),
         DeclareLaunchArgument('y', default_value='0.0'),
         DeclareLaunchArgument('z', default_value='0.30'),
-        DeclareLaunchArgument('length', default_value='0.6'),
+        DeclareLaunchArgument('length', default_value='0.3'),
         DeclareLaunchArgument('radius', default_value='0.03'),
         DeclareLaunchArgument(
             'pose_topic', default_value='/curobo_demo/bat_pose'),

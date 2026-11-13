@@ -119,6 +119,22 @@ class MpcNode : public rclcpp::Node {
     scene_config.max_capsules = 8;
     scene_config.max_cylinders = 8;
     scene_ = std::make_unique<curobo::robot::Scene>(scene_config);
+    {
+      curobo::robot::Capsule bat;
+      bat.name = "bat";
+      bat.base = {-0.5F * static_cast<float>(bat_length_), 0.0F, 0.0F};
+      bat.tip = {0.5F * static_cast<float>(bat_length_), 0.0F, 0.0F};
+      bat.radius = static_cast<float>(bat_radius_);
+      bat.pose.position = {static_cast<float>(bat_initial_x_),
+                           static_cast<float>(bat_initial_y_),
+                           static_cast<float>(bat_initial_z_)};
+      bat.pose.quaternion = {1.0F, 0.0F, 0.0F, 0.0F};
+      bat_handle_ = scene_->add_capsule(bat);
+      bat_pose_ = bat.pose;
+      has_bat_pose_ = true;
+      RCLCPP_INFO(this->get_logger(), "bat capsule added: length=%.2f radius=%.2f",
+                  bat_length_, bat_radius_);
+    }
     curobo::robot::MotionPlanningConfig planner_config;
     planner_config.use_cuda_graph = true;
     planner_ = std::make_unique<curobo::robot::MotionPlanner>(

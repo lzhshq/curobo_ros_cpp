@@ -31,7 +31,7 @@ class BatMarker(Node):
         self.motion_amplitude = float(
             self.declare_parameter('motion_amplitude', 0.10).value)
         self.motion_frequency = float(
-            self.declare_parameter('motion_frequency', 0.25).value)
+            self.declare_parameter('motion_frequency', 0.1).value)
         topic = self.declare_parameter(
             'pose_topic', '/curobo_demo/bat_pose').value
 

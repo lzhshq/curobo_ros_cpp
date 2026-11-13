@@ -17,7 +17,7 @@ def generate_launch_description():
         DeclareLaunchArgument('radius', default_value='0.03'),
         DeclareLaunchArgument('auto_motion', default_value='false'),
         DeclareLaunchArgument('motion_amplitude', default_value='0.10'),
-        DeclareLaunchArgument('motion_frequency', default_value='0.25'),
+        DeclareLaunchArgument('motion_frequency', default_value='0.1'),
         DeclareLaunchArgument(
             'pose_topic', default_value='/curobo_demo/bat_pose'),
         Node(

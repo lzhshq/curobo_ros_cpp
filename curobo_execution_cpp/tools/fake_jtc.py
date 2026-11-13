@@ -39,7 +39,6 @@ class FakeJtc(Node):
         self.q = [float(v) for v in initial]
         self.vel = [0.0] * len(self.joint_names)
         self.lock = threading.Lock()
-        self._generation = 0
 
         self.publisher = self.create_publisher(JointState, '/joint_states', 20)
         self.create_timer(1.0 / max(self.rate_hz, 1.0), self._publish)
@@ -93,64 +92,62 @@ class FakeJtc(Node):
                 [float(point.positions[index]) for index in target_index],
             ))
         points.sort(key=lambda item: item[0])
-        with self.lock:
-            self._generation += 1
-            generation = self._generation
 
         if len(points) == 1:
             with self.lock:
                 self.q = list(points[0][1])
                 self.vel = [0.0] * len(self.q)
+            self.get_logger().info('fake JTC single point complete')
             goal_handle.succeed()
             return self._result(0, 'single point applied')
 
+        duration = points[-1][0]
         self.get_logger().info(
-            f'executing {len(points)} points / {points[-1][0]:.3f}s')
+            f'executing {len(points)} points / {duration:.3f}s')
         start = time.monotonic()
-        previous = list(self.q)
+        last_log = start
         while True:
-            with self.lock:
-                if generation != self._generation:
-                    goal_handle.abort()
-                    return self._result(-1, 'preempted by newer goal')
             if goal_handle.is_cancel_requested:
                 with self.lock:
                     self.vel = [0.0] * len(self.q)
                 goal_handle.canceled()
                 return self._result(-1, 'canceled')
 
-            elapsed = (time.monotonic() - start) / self.slowdown
-            if elapsed >= points[-1][0]:
-                with self.lock:
-                    self.q = list(points[-1][1])
-                    self.vel = [0.0] * len(self.q)
+            elapsed = (time.monotonic() - start) / max(self.slowdown, 1e-6)
+            if elapsed >= duration:
                 break
 
             hi = 1
             while hi < len(points) and points[hi][0] < elapsed:
                 hi += 1
-            lo = hi - 1
-            span = points[hi][0] - points[lo][0]
-            ratio = 0.0 if span <= 1e-9 else (elapsed - points[lo][0]) / span
-            current = [
-                a + ratio * (b - a)
-                for a, b in zip(points[lo][1], points[hi][1])
-            ]
+            lo = max(0, hi - 1)
+            span = max(points[hi][0] - points[lo][0], 1e-9)
+            ratio = max(0.0, min(1.0, (elapsed - points[lo][0]) / span))
             with self.lock:
-                self.q = current
-                self.vel = [
-                    (b - a) / max(span, 1e-6)
+                self.q = [
+                    a + ratio * (b - a)
                     for a, b in zip(points[lo][1], points[hi][1])
                 ]
+                self.vel = [
+                    (b - a) / span
+                    for a, b in zip(points[lo][1], points[hi][1])
+                ]
+            now = time.monotonic()
+            if now - last_log > 1.0:
+                last_log = now
+                self.get_logger().info(
+                    f'fake JTC progress {elapsed:.2f}/{duration:.2f}s')
             time.sleep(0.01)
 
         with self.lock:
-            if generation != self._generation:
-                goal_handle.abort()
-                return self._result(-1, 'preempted by newer goal')
             self.q = list(points[-1][1])
             self.vel = [0.0] * len(self.q)
-        goal_handle.succeed()
+        self.get_logger().info('fake JTC trajectory complete')
+        try:
+            goal_handle.succeed()
+        except Exception as exception:  # noqa: BLE001 - surface action-server errors
+            self.get_logger().error(f'fake JTC succeed failed: {exception}')
+            return self._result(-1, f'succeed failed: {exception}')
         return self._result(0, 'trajectory completed')
 
 

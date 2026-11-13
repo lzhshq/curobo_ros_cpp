@@ -11,6 +11,7 @@ from rclpy.node import Node
 import rclpy
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
+from visualization_msgs.msg import Marker, MarkerArray
 
 
 class TargetCycle(Node):
@@ -29,10 +30,11 @@ class TargetCycle(Node):
         self.period = float(self.declare_parameter('period', 0.10).value)
 
         # x, y, z, qx, qy, qz, qw in the base frame.
-        default_a = [0.11332, 0.18179, 0.67355,
-                     0.00665, -0.94516, -0.32638, 0.01008]
-        default_b = [0.10543, -0.12509, 0.59443,
-                     0.07429, 0.95883, -0.14682, 0.23145]
+        # Same height Z, symmetric about the base X axis, in +X.
+        default_a = [0.30, 0.30, 0.30,
+                     -0.988745, 0.007219, -0.149434, 0.001091]
+        default_b = [0.30, -0.30, 0.30,
+                     -0.988745, 0.007219, -0.149434, 0.001091]
         self.targets = [
             list(self.declare_parameter('target_a', default_a).value),
             list(self.declare_parameter('target_b', default_b).value),
@@ -42,6 +44,7 @@ class TargetCycle(Node):
 
         self.goal_pub = self.create_publisher(PoseStamped, self.goal_topic, 10)
         self.status_pub = self.create_publisher(String, '~/status', 10)
+        self.marker_pub = self.create_publisher(MarkerArray, '/curobo_demo/targets', 10)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.index = 0
@@ -50,9 +53,36 @@ class TargetCycle(Node):
         self.last_publish = None
         self.goal_time = None
         self.create_timer(self.period, self.tick)
+        self.publish_markers()
         self.get_logger().info(
             f'target cycle: {self.base_frame} -> {self.tool_frame}, '
             f'tolerance={self.position_tolerance} m, dwell={self.dwell} s')
+
+    def publish_markers(self):
+        markers = MarkerArray()
+        clear = Marker()
+        clear.header.frame_id = self.base_frame
+        clear.header.stamp = self.get_clock().now().to_msg()
+        clear.action = Marker.DELETEALL
+        markers.markers.append(clear)
+        for index, target in enumerate(self.targets):
+            marker = Marker()
+            marker.header.frame_id = self.base_frame
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = 'mpc_targets'
+            marker.id = index + 1
+            marker.type = Marker.SPHERE
+            marker.action = Marker.ADD
+            marker.pose.position.x = target[0]
+            marker.pose.position.y = target[1]
+            marker.pose.position.z = target[2]
+            marker.scale.x = marker.scale.y = marker.scale.z = 0.04
+            marker.color.r = 1.0 if index == 0 else 0.0
+            marker.color.g = 0.0 if index == 0 else 1.0
+            marker.color.b = 0.0
+            marker.color.a = 0.85
+            markers.markers.append(marker)
+        self.marker_pub.publish(markers)
 
     def publish_target(self):
         target = self.targets[self.index]
@@ -67,6 +97,7 @@ class TargetCycle(Node):
         message.pose.orientation.z = target[5]
         message.pose.orientation.w = target[6]
         self.goal_pub.publish(message)
+        self.publish_markers()
         self.last_publish = self.get_clock().now()
         self.goal_time = self.last_publish
         status = f'goal {chr(ord("A") + self.index)}'
@@ -78,11 +109,6 @@ class TargetCycle(Node):
         if self.start_time is None:
             self.start_time = now
             self.publish_target()
-            return
-        # Repeat the first goal briefly so a late DDS discovery does not lose it.
-        if (now - self.start_time) < Duration(seconds=1.5):
-            if (now - self.last_publish) > Duration(seconds=0.3):
-                self.publish_target()
             return
         try:
             transform = self.tf_buffer.lookup_transform(

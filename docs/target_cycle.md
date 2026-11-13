@@ -34,9 +34,9 @@ Or use RViz instead of step 3; the `RobotModel` publishes the same TF.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `target_a` | `[0.161, 0.05, 0.65, ...]` | A pose `x y z qx qy qz qw` |
-| `target_b` | `[0.161, -0.03, 0.63, ...]` | B pose |
-| `position_tolerance` | `0.01` | TCP distance to count as reached |
+| `target_a` | `[0.30, 0.30, 0.30, ...]` | A pose `x y z qx qy qz qw` |
+| `target_b` | `[0.30, -0.30, 0.30, ...]` | B pose |
+| `position_tolerance` | `0.01` | TCP distance; planner reaches exactly, MPC near |
 | `orientation_tolerance` | `0.20` | quaternion angle (rad) |
 | `dwell` | `0.6` | hold time at a reached target |
 | `max_hold` | `5.0` | switch anyway after this many seconds |
@@ -45,8 +45,7 @@ Or use RViz instead of step 3; the `RobotModel` publishes the same TF.
 
 ## Notes
 
-- Both targets use the current tool orientation; they are close enough for the
-  current MPC/admission tuning.
-- If MPC does not converge, `max_hold` still produces the alternating demo;
-  reduce `position_tolerance` or tune MPC once convergence is reliable.
+- A and B are at the same height, symmetric about the base X axis, in +X.
+- The MPC node uses planner execution for far targets and MPC for near targets.
+- Planner execution reaches the exact A/B points; target cycle then switches.
 - This is the target driver only; no bat obstacle.

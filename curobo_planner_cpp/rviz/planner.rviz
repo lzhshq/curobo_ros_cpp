@@ -63,6 +63,16 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /curobo_planner/scene_markers
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Targets
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /curobo_demo/targets
+      Value: true
     - Class: rviz_default_plugins/InteractiveMarkers
       Enabled: true
       Interactive Markers Namespace: /curobo_demo/bat

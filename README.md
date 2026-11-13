@@ -459,3 +459,5 @@ ros2 launch curobo_mpc_cpp franka_bat_demo.launch.py
 ```
 
 See [docs/franka_bat_demo.md](docs/franka_bat_demo.md).
+
+- [Collision world](docs/world.md): shared Scene and object services

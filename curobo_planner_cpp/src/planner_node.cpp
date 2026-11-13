@@ -158,6 +158,14 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
       "~/clear_objects",
       std::bind(&PlannerNode::clear_objects_callback, this, std::placeholders::_1,
                 std::placeholders::_2));
+  update_object_pose_srv_ = this->create_service<UpdateObjectPose>(
+      "~/update_object_pose",
+      std::bind(&PlannerNode::update_object_pose_callback, this, std::placeholders::_1,
+                std::placeholders::_2));
+  list_objects_srv_ = this->create_service<ListObjects>(
+      "~/list_objects",
+      std::bind(&PlannerNode::list_objects_callback, this, std::placeholders::_1,
+                std::placeholders::_2));
 
   trajectory_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(
       "~/planned_trajectory", 10);
@@ -170,7 +178,8 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
   this->set_parameter(rclcpp::Parameter("node_is_available", true));
   RCLCPP_INFO(this->get_logger(),
               "Ready: ~/generate_trajectory, ~/planned_trajectory, "
-              "~/add_object, ~/remove_object, ~/clear_objects");
+              "~/add_object, ~/remove_object, ~/clear_objects, "
+              "~/update_object_pose, ~/list_objects");
 }
 
 void PlannerNode::joint_state_callback(
@@ -428,6 +437,49 @@ void PlannerNode::clear_objects_callback(
   } else {
     RCLCPP_WARN(this->get_logger(), "clear_objects failed: %s", error.c_str());
   }
+}
+
+void PlannerNode::update_object_pose_callback(
+    const std::shared_ptr<UpdateObjectPose::Request> request,
+    std::shared_ptr<UpdateObjectPose::Response> response) {
+  const double qw = request->pose.orientation.w;
+  const double qx = request->pose.orientation.x;
+  const double qy = request->pose.orientation.y;
+  const double qz = request->pose.orientation.z;
+  const double norm = std::sqrt(qw * qw + qx * qx + qy * qy + qz * qz);
+  if (norm < 1e-9) {
+    response->success = false;
+    response->message = "object pose orientation must be a non-zero quaternion (xyzw)";
+    return;
+  }
+  std::string error;
+  bool success = false;
+  {
+    std::lock_guard<std::mutex> lock(plan_mutex_);
+    success = core_->update_object_pose(
+        request->name,
+        {static_cast<float>(request->pose.position.x),
+         static_cast<float>(request->pose.position.y),
+         static_cast<float>(request->pose.position.z)},
+        {static_cast<float>(qw / norm), static_cast<float>(qx / norm),
+         static_cast<float>(qy / norm), static_cast<float>(qz / norm)},
+        error);
+  }
+  response->success = success;
+  response->message = success ? ("object '" + request->name + "' updated") : error;
+  if (success) {
+    publish_scene_markers();
+  } else {
+    RCLCPP_WARN(this->get_logger(), "update_object_pose failed: %s", error.c_str());
+  }
+}
+
+void PlannerNode::list_objects_callback(
+    const std::shared_ptr<ListObjects::Request> /*request*/,
+    std::shared_ptr<ListObjects::Response> response) {
+  std::lock_guard<std::mutex> lock(plan_mutex_);
+  response->names = core_->object_names();
+  response->message = "objects: " + std::to_string(response->names.size());
 }
 
 void PlannerNode::publish_path(const PlanResult& result) {

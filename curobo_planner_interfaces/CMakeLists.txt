@@ -11,6 +11,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/AddObject.srv"
   "srv/RemoveObject.srv"
   "srv/ClearObjects.srv"
+  "srv/UpdateObjectPose.srv"
+  "srv/ListObjects.srv"
   DEPENDENCIES geometry_msgs sensor_msgs)
 
 ament_export_dependencies(rosidl_default_runtime)

@@ -11,6 +11,8 @@
 #include "curobo_core_cpp/planner_core.hpp"
 #include "curobo_planner_interfaces/srv/add_object.hpp"
 #include "curobo_planner_interfaces/srv/clear_objects.hpp"
+#include "curobo_planner_interfaces/srv/list_objects.hpp"
+#include "curobo_planner_interfaces/srv/update_object_pose.hpp"
 #include "curobo_planner_interfaces/srv/plan_pose.hpp"
 #include "curobo_planner_interfaces/srv/remove_object.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
@@ -40,6 +42,8 @@ class PlannerNode : public rclcpp::Node {
   using AddObject = curobo_planner_interfaces::srv::AddObject;
   using RemoveObject = curobo_planner_interfaces::srv::RemoveObject;
   using ClearObjects = curobo_planner_interfaces::srv::ClearObjects;
+  using UpdateObjectPose = curobo_planner_interfaces::srv::UpdateObjectPose;
+  using ListObjects = curobo_planner_interfaces::srv::ListObjects;
 
   void joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr message);
   void plan_callback(const std::shared_ptr<PlanPose::Request> request,
@@ -50,6 +54,11 @@ class PlannerNode : public rclcpp::Node {
                               std::shared_ptr<RemoveObject::Response> response);
   void clear_objects_callback(const std::shared_ptr<ClearObjects::Request> request,
                               std::shared_ptr<ClearObjects::Response> response);
+  void update_object_pose_callback(
+      const std::shared_ptr<UpdateObjectPose::Request> request,
+      std::shared_ptr<UpdateObjectPose::Response> response);
+  void list_objects_callback(const std::shared_ptr<ListObjects::Request> request,
+                             std::shared_ptr<ListObjects::Response> response);
 
   bool reorder_start(const sensor_msgs::msg::JointState& message,
                      const std::vector<std::string>& desired,
@@ -66,6 +75,8 @@ class PlannerNode : public rclcpp::Node {
   rclcpp::Service<AddObject>::SharedPtr add_object_srv_;
   rclcpp::Service<RemoveObject>::SharedPtr remove_object_srv_;
   rclcpp::Service<ClearObjects>::SharedPtr clear_objects_srv_;
+  rclcpp::Service<UpdateObjectPose>::SharedPtr update_object_pose_srv_;
+  rclcpp::Service<ListObjects>::SharedPtr list_objects_srv_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr trajectory_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;

@@ -80,7 +80,7 @@ class BatMarker(Node):
         self.publish_pose(marker.pose, self.get_clock().now().to_msg())
         if self.auto_motion:
             self.start_time = time.monotonic()
-            self.create_timer(0.02, self.auto_tick)
+            self.create_timer(0.05, self.auto_tick)
         self.get_logger().info(
             f'bat marker ready: frame={self.frame_id} x={self.fixed_x} '
             f'length={self.length} radius={self.radius}')

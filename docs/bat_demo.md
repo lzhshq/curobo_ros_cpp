@@ -33,6 +33,8 @@ In RViz, enable the `BatControl` InteractiveMarkers display (it is included in
 publishes `/curobo_demo/bat_pose`; the MPC node updates the scene capsule before
 each `step()`.
 
+![RViz bat marker](images/rviz_bat_demo.png)
+
 ## Parameters
 
 | Parameter | Default | Meaning |

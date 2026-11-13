@@ -513,6 +513,7 @@ class MpcNode : public rclcpp::Node {
 
   void apply_live_goal_locked(const geometry_msgs::msg::Pose& goal,
                               const std::vector<float>& q) {
+    const auto apply_start = std::chrono::steady_clock::now();
     const auto& o = goal.orientation;
     const double norm = std::sqrt(o.x * o.x + o.y * o.y + o.z * o.z + o.w * o.w);
     if (!std::isfinite(norm) || norm < 1e-9) return;
@@ -559,6 +560,8 @@ class MpcNode : public rclcpp::Node {
     request.position_error = d_plan_position_error_;
     request.orientation_error = d_plan_orientation_error_;
     planner_->plan_pose(request);
+    const double plan_ms = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - apply_start).count() * 1e3;
     uint8_t ok = 0;
     check_cuda(cudaMemcpy(&ok, d_plan_success_, 1, cudaMemcpyDeviceToHost),
                "live plan success");
@@ -585,6 +588,11 @@ class MpcNode : public rclcpp::Node {
     executed_knots_ = 1;
     has_predicted_ = false;
     set_status("live tracking");
+    const double total_ms = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - apply_start).count() * 1e3;
+    RCLCPP_INFO(this->get_logger(),
+                "live target init: plan=%.1f ms total=%.1f ms seed_ok=%d",
+                plan_ms, total_ms, static_cast<int>(ok));
     (void)info;
   }
 
@@ -904,8 +912,10 @@ class MpcNode : public rclcpp::Node {
             const auto q_it = state_.find(name);
             if (q_it == state_.end()) { active = false; break; }
             q[i] = q_it->second;
-            const auto v_it = velocity_.find(name);
-            v[i] = v_it != velocity_.end() ? v_it->second : last_action_v_[i];
+            // Use the controller's last action for velocity continuity.
+            // Measured /joint_states velocity can contain action-boundary
+            // spikes (e.g. fake JTC); official curobo_ros feeds last action.
+            v[i] = last_action_v_[i];
             a[i] = last_action_a_[i];
           }
         } else if (active && has_predicted_) {
@@ -936,7 +946,13 @@ class MpcNode : public rclcpp::Node {
           check_cuda(cudaMemcpy(d_a_, a.data(), a.size() * sizeof(float),
                                 cudaMemcpyHostToDevice), "a");
           check_cuda(cudaMemset(d_j_, 0, zero.size() * sizeof(float)), "j");
+          RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                               "MPC step start executed=%d q0=%.4f v0=%.4f",
+                               executed, q[0], v[0]);
           const auto result = mpc_->step(d_q_, d_v_, d_a_, d_j_, executed);
+          RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                               "MPC step done feasible=%s cost=%.1f",
+                               result.feasible ? "true" : "false", result.cost);
           {
             std::lock_guard<std::mutex> lock(data_mutex_);
             last_cost_ = result.cost;

@@ -112,6 +112,9 @@ class MpcNode : public rclcpp::Node {
         "far_replan_min_move", 0.01);
     const double trajectory_dt =
         this->declare_parameter<double>("trajectory_dt", 0.03);
+    command_steps_ = this->declare_parameter<int>("command_steps", 16);
+    use_measured_state_ = this->declare_parameter<bool>("use_measured_state", false);
+    if (command_steps_ < 1) command_steps_ = 1;
     const auto controller_joints = this->declare_parameter<std::vector<std::string>>(
         "controller_joints", std::vector<std::string>{});
     const std::string name_map =
@@ -163,8 +166,10 @@ class MpcNode : public rclcpp::Node {
     steps_ = shape.trajectory_steps;
     knots_ = shape.num_knots;
     if (steps_ <= 0 || knots_ <= 0) throw std::runtime_error("MPC layout is empty");
-    const int samples_per_knot = std::max(1, (steps_ - 1) / (knots_ + 4));
-    knot_dt_ = trajectory_dt * samples_per_knot;
+    samples_per_knot_ = std::max(1, (steps_ - 1) / (knots_ + 4));
+    command_knots_ = std::max(1, std::min(
+        knots_, command_steps_ / samples_per_knot_));
+    knot_dt_ = trajectory_dt * samples_per_knot_;
     knots_per_interval_ = std::max(1, static_cast<int>(
         std::llround(command_interval_ / std::max(knot_dt_, 1e-6))));
     knots_per_interval_ = std::min(knots_per_interval_, knots_);
@@ -731,7 +736,16 @@ class MpcNode : public rclcpp::Node {
         executed = executed_knots_;
         bat_pose = bat_pose_;
         has_bat = has_bat_pose_;
-        if (active && has_predicted_) {
+        if (active && use_measured_state_ && has_state_) {
+          q.resize(static_cast<std::size_t>(dof_));
+          v.assign(static_cast<std::size_t>(dof_), 0.0F);
+          a.assign(static_cast<std::size_t>(dof_), 0.0F);
+          for (int i = 0; i < dof_; ++i) {
+            const auto it = state_.find(kinematics_->joint_name(i));
+            if (it == state_.end()) { active = false; break; }
+            q[i] = it->second;
+          }
+        } else if (active && has_predicted_) {
           q = predicted_q_;
           v = predicted_v_;
           a = predicted_a_;
@@ -891,8 +905,7 @@ class MpcNode : public rclcpp::Node {
     segment.header.stamp = this->now();
     segment.joint_names = controller_names_;
     const int segment_steps = std::max(
-        2, std::min(steps_, static_cast<int>(
-            std::llround(16.0 * proposal_dt_ / std::max(proposal_dt_, 1e-6F))) + 1));
+        2, std::min(steps_, command_steps_ + 1));
     for (int i = 0; i < segment_steps; ++i) {
       trajectory_msgs::msg::JointTrajectoryPoint point;
       point.positions.resize(controller_source_.size());
@@ -904,6 +917,20 @@ class MpcNode : public rclcpp::Node {
       segment.points.push_back(std::move(point));
     }
 
+    if (!segment.points.empty()) {
+      float measured = 0.0F;
+      {
+        std::lock_guard<std::mutex> data_lock(data_mutex_);
+        const auto it = state_.find(kinematics_->joint_name(0));
+        if (it != state_.end()) measured = it->second;
+      }
+      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
+                           "MPC segment q0 first=%.4f last=%.4f measured=%.4f "
+                           "executed=%d use_measured=%s",
+                           segment.points.front().positions[0],
+                           segment.points.back().positions[0], measured,
+                           executed_knots_, use_measured_state_ ? "true" : "false");
+    }
     std::string error;
     if (!adapter_->send(segment, error)) {
       set_status("send failed: " + error);
@@ -911,9 +938,7 @@ class MpcNode : public rclcpp::Node {
     }
     {
       std::lock_guard<std::mutex> lock(data_mutex_);
-      const int period_index = std::min(
-          steps_ - 1, std::max(1, static_cast<int>(
-              std::llround(16.0 * proposal_dt_ / std::max(proposal_dt_, 1e-6F)))));
+      const int period_index = std::min(steps_ - 1, command_steps_);
       predicted_q_.resize(static_cast<std::size_t>(dof_));
       predicted_v_.resize(static_cast<std::size_t>(dof_));
       predicted_a_.resize(static_cast<std::size_t>(dof_));
@@ -931,7 +956,7 @@ class MpcNode : public rclcpp::Node {
       has_accept_time_ = true;
       has_active_ = true;
       proposal_fresh_ = false;
-      executed_knots_ = 4;
+      executed_knots_ = command_knots_;
       ++handoffs_;
     }
     set_status("tracking");
@@ -976,6 +1001,10 @@ class MpcNode : public rclcpp::Node {
   int tool_count_ = 0;
   int steps_ = 0;
   int knots_ = 0;
+  int command_steps_ = 16;
+  int samples_per_knot_ = 4;
+  int command_knots_ = 4;
+  bool use_measured_state_ = false;
 
   std::unique_ptr<curobo::robot::Kinematics> kinematics_;
   std::unique_ptr<curobo_ros_cpp::PlannerCore> planner_core_;

@@ -2,6 +2,8 @@ curobo_mpc:
   ros__parameters:
     artifact_dir: ""
     trajectory_dt: 0.03
+    command_steps: 16
+    use_measured_state: false
     planner_distance_threshold: 0.15
     far_replan_period: 1.0
     far_replan_min_move: 0.01

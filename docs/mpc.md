@@ -167,3 +167,42 @@ known:   0.96 cm
 
 The A/B target cycle uses a 4 cm switch tolerance because the current MPC
 converges to ~1–2 cm, not sub-cm.
+
+## Short-segment closed loop
+
+`franka_mpc_closed_loop.launch.py` exercises the MPC closed loop with short
+commands. It sets:
+
+```text
+command_steps = 16   # samples, 4 knots for Franka
+use_measured_state = true
+planner_distance_threshold = 100
+```
+
+The C++ `MpcController::step()` takes `executed_knots`, not sample count. The
+node now derives:
+
+```text
+samples_per_knot = (trajectory_steps - 1) / (num_knots + spline_degree)
+command_knots = command_steps / samples_per_knot
+executed_knots_ = command_knots
+```
+
+Using 4 samples (one knot) falls inside the B-spline's initial flat segment and
+produces no motion. 16 samples (four knots) tracks a near target.
+
+Run one target without the A/B driver:
+
+```bash
+ros2 launch curobo_mpc_cpp franka_mpc_closed_loop.launch.py \
+  autostart_cycle:=false
+```
+
+Reference result at the near goal `(0.161283, 0.04, 0.645)`:
+
+```text
+TCP ≈ (0.161, 0.038, 0.645)
+```
+
+Still to do: tune `command_steps` down only after checking knot alignment and
+B-spline support; do not cut the horizon arbitrarily.

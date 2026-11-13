@@ -21,7 +21,7 @@ class TargetCycle(Node):
         self.goal_topic = self.declare_parameter(
             'goal_topic', '/curobo_mpc/goal').value
         self.position_tolerance = float(
-            self.declare_parameter('position_tolerance', 0.02).value)
+            self.declare_parameter('position_tolerance', 0.01).value)
         self.orientation_tolerance = float(
             self.declare_parameter('orientation_tolerance', 0.20).value)
         self.dwell = float(self.declare_parameter('dwell', 0.6).value)

@@ -9,7 +9,7 @@ def generate_launch_description():
         DeclareLaunchArgument('base_frame', default_value='panda_link0'),
         DeclareLaunchArgument('tool_frame', default_value='panda_hand'),
         DeclareLaunchArgument('goal_topic', default_value='/curobo_mpc/goal'),
-        DeclareLaunchArgument('position_tolerance', default_value='0.04'),
+        DeclareLaunchArgument('position_tolerance', default_value='0.01'),
         DeclareLaunchArgument('orientation_tolerance', default_value='0.20'),
         DeclareLaunchArgument('dwell', default_value='0.6'),
         DeclareLaunchArgument('max_hold', default_value='5.0'),

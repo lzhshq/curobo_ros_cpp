@@ -36,7 +36,7 @@ Or use RViz instead of step 3; the `RobotModel` publishes the same TF.
 |---|---|---|
 | `target_a` | `[0.161, 0.05, 0.65, ...]` | A pose `x y z qx qy qz qw` |
 | `target_b` | `[0.161, -0.03, 0.63, ...]` | B pose |
-| `position_tolerance` | `0.03` | TCP distance to count as reached |
+| `position_tolerance` | `0.01` | TCP distance to count as reached |
 | `orientation_tolerance` | `0.20` | quaternion angle (rad) |
 | `dwell` | `0.6` | hold time at a reached target |
 | `max_hold` | `5.0` | switch anyway after this many seconds |

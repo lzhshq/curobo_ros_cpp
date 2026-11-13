@@ -15,6 +15,10 @@
 #include <utility>
 #include <vector>
 
+#include "curobo_execution_cpp/execution_adapter.hpp"
+#include "curobo_execution_cpp/fpc_adapter.hpp"
+#include "curobo_execution_cpp/jtc_adapter.hpp"
+#include "curobo_execution_cpp/topic_adapter.hpp"
 #include "curobo_robot_runtime/kinematics.h"
 #include "curobo_robot_runtime/motion_planner.h"
 #include "curobo_robot_runtime/mpc.h"
@@ -25,6 +29,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "trajectory_msgs/msg/joint_trajectory.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
 namespace curobo_ros_cpp {
@@ -40,6 +45,15 @@ double to_seconds(const builtin_interfaces::msg::Duration& duration) {
   return static_cast<double>(duration.sec) + 1e-9 * static_cast<double>(duration.nanosec);
 }
 
+void set_duration(builtin_interfaces::msg::Duration& duration, double seconds) {
+  duration.sec = static_cast<int32_t>(std::floor(seconds));
+  duration.nanosec = static_cast<uint32_t>((seconds - std::floor(seconds)) * 1e9);
+  if (duration.nanosec >= 1000000000U) {
+    ++duration.sec;
+    duration.nanosec = 0;
+  }
+}
+
 }  // namespace
 
 /**
@@ -51,7 +65,7 @@ double to_seconds(const builtin_interfaces::msg::Duration& duration) {
  * Consumer timers:
  *  - accept timer (command_interval): accept the latest validated proposal and
  *    make it the active command horizon;
- *  - stream timer (command_rate): publish samples from the active horizon to FPC.
+ *  - FPC/JTC adapter: streams or sends the accepted segment.
  *
  * This mirrors curobo_ros: solve continuously, send at a fixed command cadence.
  * It is still a scaffold: admission is only validation + freshness, not a real
@@ -69,8 +83,13 @@ class MpcNode : public rclcpp::Node {
     command_topic_ = this->declare_parameter<std::string>(
         "command_topic", "/position_forward_controller/commands");
     control_rate_ = this->declare_parameter<double>("control_rate", 30.0);
-    command_rate_ = this->declare_parameter<double>("command_rate", 100.0);
     command_interval_ = this->declare_parameter<double>("command_interval", 0.24);
+    adapter_name_ = this->declare_parameter<std::string>("adapter", "fpc");
+    action_ = this->declare_parameter<std::string>(
+        "action", "/position_joint_trajectory_controller/follow_joint_trajectory");
+    publish_rate_ = this->declare_parameter<double>("publish_rate", 100.0);
+    goal_tolerance_ = this->declare_parameter<double>("goal_tolerance", 0.02);
+    goal_time_tolerance_ = this->declare_parameter<double>("goal_time_tolerance", 2.0);
     state_timeout_ = this->declare_parameter<double>("state_timeout", 0.2);
     max_tracking_error_ = this->declare_parameter<double>("max_tracking_error", 0.05);
     brake_check_ = this->declare_parameter<bool>("brake_check", true);
@@ -153,8 +172,18 @@ class MpcNode : public rclcpp::Node {
                           static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
                "brake j");
 
-    command_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
-        command_topic_, 10);
+    if (adapter_name_ == "fpc") {
+      adapter_ = std::make_unique<curobo_execution_cpp::FpcAdapter>(
+          this, command_topic_, controller_names_, publish_rate_);
+    } else if (adapter_name_ == "jtc") {
+      adapter_ = std::make_unique<curobo_execution_cpp::JtcAdapter>(
+          this, action_, controller_names_, goal_tolerance_, goal_time_tolerance_);
+    } else if (adapter_name_ == "topic") {
+      adapter_ = std::make_unique<curobo_execution_cpp::TopicAdapter>(
+          this, command_topic_);
+    } else {
+      throw std::runtime_error("unknown adapter '" + adapter_name_ + "'");
+    }
     status_pub_ = this->create_publisher<std_msgs::msg::String>(
         "~/status", rclcpp::QoS(1).transient_local());
     joint_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
@@ -170,17 +199,14 @@ class MpcNode : public rclcpp::Node {
     accept_timer_ = this->create_wall_timer(
         std::chrono::duration<double>(std::max(command_interval_, 1e-3)),
         std::bind(&MpcNode::accept_callback, this));
-    stream_timer_ = this->create_wall_timer(
-        std::chrono::duration<double>(1.0 / std::max(command_rate_, 1.0)),
-        std::bind(&MpcNode::stream_callback, this));
 
     set_status("idle");
     producer_ = std::thread(&MpcNode::producer_loop, this);
     RCLCPP_INFO(this->get_logger(),
                 "MPC producer/consumer: dof=%d knots=%d steps=%d control=%.1f Hz "
-                "command=%.1f Hz interval=%.3f s knots_per_interval=%d",
-                dof_, knots_, steps_, control_rate_, command_rate_, command_interval_,
-                knots_per_interval_);
+                "publish=%.1f Hz interval=%.3f s knots_per_interval=%d adapter=%s",
+                dof_, knots_, steps_, control_rate_, publish_rate_, command_interval_,
+                knots_per_interval_, adapter_name_.c_str());
   }
 
   ~MpcNode() override {
@@ -468,6 +494,29 @@ class MpcNode : public rclcpp::Node {
       set_status("holding: " + reason);
       return;
     }
+
+    trajectory_msgs::msg::JointTrajectory segment;
+    segment.header.stamp = this->now();
+    segment.joint_names = controller_names_;
+    const int segment_steps = std::max(
+        1, std::min(steps_, static_cast<int>(
+            std::llround(command_interval_ / std::max(proposal_dt_, 1e-6F)))));
+    for (int i = 0; i < segment_steps; ++i) {
+      trajectory_msgs::msg::JointTrajectoryPoint point;
+      point.positions.resize(controller_source_.size());
+      for (std::size_t j = 0; j < controller_source_.size(); ++j) {
+        point.positions[j] = proposal_[static_cast<std::size_t>(i) * dof_ +
+                                       controller_source_[j]];
+      }
+      set_duration(point.time_from_start, static_cast<double>(i) * proposal_dt_);
+      segment.points.push_back(std::move(point));
+    }
+
+    std::string error;
+    if (!adapter_->send(segment, error)) {
+      set_status("send failed: " + error);
+      return;
+    }
     {
       std::lock_guard<std::mutex> lock(data_mutex_);
       mpc_->accept();
@@ -480,32 +529,6 @@ class MpcNode : public rclcpp::Node {
       ++handoffs_;
     }
     set_status("tracking");
-  }
-
-  void stream_callback() {
-    std::lock_guard<std::mutex> lock(data_mutex_);
-    if (!has_active_ || active_.empty()) return;
-    const double elapsed = std::chrono::duration<double>(
-                               std::chrono::steady_clock::now() - active_start_)
-                               .count();
-    const double duration = active_dt_ * static_cast<double>(steps_ - 1);
-    const std::size_t index = std::min(
-        static_cast<std::size_t>(elapsed / std::max(active_dt_, 1e-6F)),
-        static_cast<std::size_t>(steps_ - 1));
-    const std::size_t next = std::min(index + 1, static_cast<std::size_t>(steps_ - 1));
-    const double base = static_cast<double>(index) * active_dt_;
-    const double ratio = active_dt_ > 0.0 ? std::clamp((elapsed - base) / active_dt_, 0.0, 1.0)
-                                          : 0.0;
-    std_msgs::msg::Float64MultiArray message;
-    message.data.resize(controller_source_.size());
-    for (std::size_t i = 0; i < controller_source_.size(); ++i) {
-      const std::size_t source = controller_source_[i];
-      const double first = active_[index * dof_ + source];
-      const double second = active_[next * dof_ + source];
-      message.data[i] = static_cast<float>(first + ratio * (second - first));
-    }
-    command_pub_->publish(message);
-    (void)duration;
   }
 
   void cancel_callback(
@@ -524,8 +547,12 @@ class MpcNode : public rclcpp::Node {
 
   std::string artifact_dir_;
   std::string command_topic_;
+  std::string adapter_name_;
+  std::string action_;
+  double publish_rate_ = 100.0;
+  double goal_tolerance_ = 0.02;
+  double goal_time_tolerance_ = 2.0;
   double control_rate_ = 30.0;
-  double command_rate_ = 100.0;
   double command_interval_ = 0.24;
   double state_timeout_ = 0.2;
   double max_tracking_error_ = 0.05;
@@ -543,14 +570,13 @@ class MpcNode : public rclcpp::Node {
   std::unique_ptr<curobo::robot::MotionPlanner> planner_;
   std::unique_ptr<curobo::robot::MpcController> mpc_;
 
-  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr command_pub_;
+  std::unique_ptr<curobo_execution_cpp::ExecutionAdapter> adapter_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr fault_sub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_srv_;
   rclcpp::TimerBase::SharedPtr accept_timer_;
-  rclcpp::TimerBase::SharedPtr stream_timer_;
   std::thread producer_;
   std::atomic<bool> running_{true};
 

@@ -11,6 +11,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(curobo_core_cpp REQUIRED)
+find_package(curobo_execution_cpp REQUIRED)
 find_package(CUDAToolkit 12.3 REQUIRED)
 
 set(CUROBO_RUNTIME_ROOT "" CACHE PATH
@@ -37,6 +38,7 @@ ament_target_dependencies(mpc_node
   std_srvs)
 target_link_libraries(mpc_node
   curobo_core_cpp::curobo_core_cpp
+  curobo_execution_cpp::curobo_execution_adapters
   "${CUROBO_ROBOT_RUNTIME}"
   CUDA::cudart)
 set_target_properties(mpc_node PROPERTIES

@@ -74,21 +74,23 @@ producer thread (control_rate=30 Hz):
 
 accept timer (command_interval=0.24 s):
   accept the latest valid proposal
-  → make it the active command horizon
+  → send a segment to the ExecutionAdapter
   → advance executed_knots
 
-stream timer (command_rate=100 Hz):
-  publish samples from the active horizon to FPC
+ExecutionAdapter:
+  FpcAdapter  → streams Float64MultiArray at publish_rate
+  JtcAdapter  → sends FollowJointTrajectory and exposes the action result
 ```
 
-The producer never blocks on publishing. The consumer sends a fixed cadence, so
-100 Hz command output does not wait for the 20–30 ms solver.
+The producer never blocks on publishing. The adapter owns the transport, so the
+100 Hz FPC stream does not wait for the 20–30 ms solver.
 
 Current configuration:
 
 ```yaml
 control_rate: 30.0       # desired producer cadence
-command_rate: 100.0      # FPC stream cadence
+adapter: fpc             # fpc/jtc/topic
+publish_rate: 100.0      # FPC stream cadence
 command_interval: 0.24   # accept/latest-action window (curobo_ros default)
 trajectory_dt: 0.03      # MPC sample interval
 ```

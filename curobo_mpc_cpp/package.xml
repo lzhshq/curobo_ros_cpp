@@ -15,6 +15,7 @@
   <depend>visualization_msgs</depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>interactive_markers</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
   <depend>std_srvs</depend>
   <depend>curobo_core_cpp</depend>
   <depend>curobo_execution_cpp</depend>

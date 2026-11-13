@@ -356,7 +356,7 @@ class MpcNode : public rclcpp::Node {
     check_cuda(cudaMemcpy(d_seed_, seed.data(), seed.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "seed");
     curobo::robot::MpcCartesianConfig objective;
-    objective.constrain_path = true;
+    objective.constrain_path = false;
     mpc_->reset_cartesian(d_goal_pos_, d_goal_quat_, d_seed_, objective);
 
     std::lock_guard<std::mutex> lock(data_mutex_);

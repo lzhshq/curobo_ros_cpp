@@ -49,6 +49,10 @@ install(TARGETS mpc_node DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS tools/bat_marker.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME bat_marker)
+
+install(PROGRAMS tools/target_cycle.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME target_cycle)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 ament_package()

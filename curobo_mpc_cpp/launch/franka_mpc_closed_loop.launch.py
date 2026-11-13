@@ -31,6 +31,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('artifact_dir', default_value=default_artifact),
         DeclareLaunchArgument('autostart_cycle', default_value='true'),
+        DeclareLaunchArgument('brake_check', default_value='true'),
+        DeclareLaunchArgument('control_rate', default_value='30.0'),
         DeclareLaunchArgument(
             'robot_description',
             default_value=os.path.join(panda_share, 'urdf', 'panda.urdf')),
@@ -54,6 +56,8 @@ def generate_launch_description():
                     'planner_distance_threshold': 100.0,
                     'command_steps': 12,
                     'use_measured_state': True,
+                    'brake_check': LaunchConfiguration('brake_check'),
+                    'control_rate': LaunchConfiguration('control_rate'),
                 },
             ]),
         IncludeLaunchDescription(

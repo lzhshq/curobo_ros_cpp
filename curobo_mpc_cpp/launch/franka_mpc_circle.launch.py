@@ -30,6 +30,8 @@ def generate_launch_description():
                 'artifact_dir': artifact_dir,
                 'robot_description': robot_description,
                 'autostart_cycle': 'false',
+                'brake_check': 'false',
+                'control_rate': '50.0',
             }.items()),
         TimerAction(period=3.0, actions=[Node(
             package='curobo_mpc_cpp', executable='circle_target',

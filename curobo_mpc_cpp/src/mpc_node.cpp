@@ -871,6 +871,10 @@ class MpcNode : public rclcpp::Node {
                                  result.cost, result.collision_cost, executed);
             std::lock_guard<std::mutex> lock(data_mutex_);
             executed_knots_ = 0;
+            proposal_fresh_ = false;
+            proposal_.clear();
+            proposal_v_.clear();
+            proposal_a_.clear();
           }
           if (result.feasible) {
             // NOTE: do not validate the raw optimizer tensors here. The

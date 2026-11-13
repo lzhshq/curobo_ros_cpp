@@ -58,7 +58,10 @@ class BatMarker(Node):
         handle_z = InteractiveMarkerControl()
         handle_z.always_visible = True
         handle_z.interaction_mode = InteractiveMarkerControl.MOVE_AXIS
+        # Official interactive-marker examples select an axis by setting the
+        # matching quaternion component (not by rotating local z).
         handle_z.orientation.w = 1.0
+        handle_z.orientation.z = 1.0
         handle_z.name = 'move_z'
         handle_z.markers.append(visual)
         marker.controls.append(handle_z)

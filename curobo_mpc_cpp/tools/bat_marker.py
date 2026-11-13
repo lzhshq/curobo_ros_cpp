@@ -61,7 +61,7 @@ class BatMarker(Node):
         # Official interactive-marker examples select an axis by setting the
         # matching quaternion component (not by rotating local z).
         handle_z.orientation.w = 1.0
-        handle_z.orientation.z = 1.0
+        handle_z.orientation.y = 1.0
         handle_z.name = 'move_z'
         handle_z.markers.append(visual)
         marker.controls.append(handle_z)

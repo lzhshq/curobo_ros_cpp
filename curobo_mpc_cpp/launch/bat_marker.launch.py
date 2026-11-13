@@ -15,6 +15,9 @@ def generate_launch_description():
         DeclareLaunchArgument('z', default_value='0.30'),
         DeclareLaunchArgument('length', default_value='0.4'),
         DeclareLaunchArgument('radius', default_value='0.03'),
+        DeclareLaunchArgument('auto_motion', default_value='false'),
+        DeclareLaunchArgument('motion_amplitude', default_value='0.10'),
+        DeclareLaunchArgument('motion_frequency', default_value='0.25'),
         DeclareLaunchArgument(
             'pose_topic', default_value='/curobo_demo/bat_pose'),
         Node(
@@ -29,6 +32,9 @@ def generate_launch_description():
                 'z': LaunchConfiguration('z'),
                 'length': LaunchConfiguration('length'),
                 'radius': LaunchConfiguration('radius'),
+                'auto_motion': LaunchConfiguration('auto_motion'),
+                'motion_amplitude': LaunchConfiguration('motion_amplitude'),
+                'motion_frequency': LaunchConfiguration('motion_frequency'),
                 'pose_topic': LaunchConfiguration('pose_topic'),
             }],
         ),

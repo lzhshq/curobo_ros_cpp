@@ -5,8 +5,9 @@ RViz Y/Z plane.
 
 ## Control
 
-The bat is a capsule with its long axis along world **X**. RViz exposes only
-**Z translation**; X is fixed. It is not rotated by the marker.
+The bat is a capsule with its long axis along world **X**. The demo moves it
+automatically along **Z** (`auto_bat:=true`, default); X/Y are fixed. Use
+`auto_bat:=false` for the manual Z-only marker.
 
 ## Run
 

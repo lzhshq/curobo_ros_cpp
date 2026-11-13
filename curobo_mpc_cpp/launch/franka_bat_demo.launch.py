@@ -41,6 +41,10 @@ def generate_launch_description():
             'autostart_cycle',
             default_value='true',
             description='Start the alternating A/B target cycle'),
+        DeclareLaunchArgument(
+            'auto_bat',
+            default_value='true',
+            description='Move the bat automatically along Z'),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(
@@ -60,7 +64,8 @@ def generate_launch_description():
             }.items()),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(
-                mpc_share, 'launch', 'bat_marker.launch.py'))),
+                mpc_share, 'launch', 'bat_marker.launch.py')),
+            launch_arguments={'auto_motion': LaunchConfiguration('auto_bat')}.items()),
         TimerAction(
             period=3.0,
             actions=[IncludeLaunchDescription(

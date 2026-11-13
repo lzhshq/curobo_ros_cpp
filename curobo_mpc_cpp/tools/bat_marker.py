@@ -56,9 +56,9 @@ class BatMarker(Node):
         self.marker_name = marker.name
 
         visual = Marker()
-        # A cube makes the long axis explicit in world X; a cylinder's local
-        # axis is Z and can be rotated again by the interactive control frame.
-        visual.type = Marker.CUBE
+        # The control frame maps the visual's local +Z onto world +X, so the
+        # cylinder's length goes on scale.z.
+        visual.type = Marker.CYLINDER
         visual.scale.x = 2.0 * self.radius
         visual.scale.y = 2.0 * self.radius
         visual.scale.z = self.length

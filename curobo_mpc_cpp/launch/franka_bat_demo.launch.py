@@ -51,6 +51,9 @@ def generate_launch_description():
                 execution_share, 'launch', 'fake_franka.launch.py'))),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(
+                execution_share, 'launch', 'execution.launch.py'))),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(
                 mpc_share, 'launch', 'mpc.launch.py')),
             launch_arguments={'artifact_dir': artifact_dir}.items()),
         IncludeLaunchDescription(

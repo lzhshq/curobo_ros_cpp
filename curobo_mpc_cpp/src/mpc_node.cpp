@@ -142,6 +142,7 @@ class MpcNode : public rclcpp::Node {
 
     kinematics_ = std::make_unique<curobo::robot::Kinematics>(artifact_dir_);
     feedback_kinematics_ = std::make_unique<curobo::robot::Kinematics>(artifact_dir_);
+    path_kinematics_ = std::make_unique<curobo::robot::Kinematics>(artifact_dir_);
     curobo_ros_cpp::PlannerConfig world_config;
     world_config.artifact_dir = artifact_dir_;
     world_config.max_cuboids = 8;
@@ -262,6 +263,17 @@ class MpcNode : public rclcpp::Node {
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_fb_jac_),
                           static_cast<std::size_t>(tool_count_) * 6 * dof_ * sizeof(float)),
                "fb jac");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_path_q_),
+                          static_cast<std::size_t>(steps_) * dof_ * sizeof(float)), "path q");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_path_pos_),
+                          static_cast<std::size_t>(steps_) * tool_count_ * 3 * sizeof(float)),
+               "path pos");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_path_quat_),
+                          static_cast<std::size_t>(steps_) * tool_count_ * 4 * sizeof(float)),
+               "path quat");
+    check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_path_jac_),
+                          static_cast<std::size_t>(steps_) * tool_count_ * 6 * dof_ *
+                              sizeof(float)), "path jac");
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&d_brake_q_),
                           static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
                "brake q");
@@ -345,6 +357,7 @@ class MpcNode : public rclcpp::Node {
 
     set_status("idle");
     producer_ = std::thread(&MpcNode::producer_loop, this);
+    path_thread_ = std::thread(&MpcNode::path_loop, this);
     far_replan_timer_ = this->create_wall_timer(
         std::chrono::duration<double>(std::max(far_replan_period_, 0.1)),
         std::bind(&MpcNode::far_replan_callback, this));
@@ -358,6 +371,7 @@ class MpcNode : public rclcpp::Node {
   ~MpcNode() override {
     running_ = false;
     if (producer_.joinable()) producer_.join();
+    if (path_thread_.joinable()) path_thread_.join();
     cudaFree(d_q_);
     cudaFree(d_v_);
     cudaFree(d_a_);
@@ -391,6 +405,10 @@ class MpcNode : public rclcpp::Node {
     cudaFree(d_fb_pos_);
     cudaFree(d_fb_quat_);
     cudaFree(d_fb_jac_);
+    cudaFree(d_path_q_);
+    cudaFree(d_path_pos_);
+    cudaFree(d_path_quat_);
+    cudaFree(d_path_jac_);
     cudaFree(d_brake_q_);
     cudaFree(d_brake_v_);
     cudaFree(d_brake_a_);
@@ -882,6 +900,44 @@ class MpcNode : public rclcpp::Node {
     if (plan_far_locked(q, "dynamic scene")) {
       last_replan_pose_ = bat_pose;
       has_last_replan_pose_ = true;
+    }
+  }
+
+  void path_loop() {
+    while (running_) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      if (!action_active_) continue;
+      std::vector<float> proposal;
+      {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        proposal = proposal_;
+      }
+      if (proposal.size() != static_cast<std::size_t>(steps_) * dof_) continue;
+      try {
+        check_cuda(cudaMemcpy(d_path_q_, proposal.data(), proposal.size() * sizeof(float),
+                              cudaMemcpyHostToDevice), "path q");
+        path_kinematics_->forward(d_path_q_, d_path_pos_, d_path_quat_, d_path_jac_, 1, steps_);
+        check_cuda(cudaDeviceSynchronize(), "path forward");
+        std::vector<float> pos(static_cast<std::size_t>(steps_) * tool_count_ * 3);
+        check_cuda(cudaMemcpy(pos.data(), d_path_pos_, pos.size() * sizeof(float),
+                              cudaMemcpyDeviceToHost), "path pos copy");
+        nav_msgs::msg::Path path;
+        path.header.frame_id = base_frame_;
+        path.header.stamp = this->now();
+        path.poses.reserve(steps_);
+        for (int i = 0; i < steps_; ++i) {
+          geometry_msgs::msg::PoseStamped pose;
+          pose.header = path.header;
+          pose.pose.position.x = pos[static_cast<std::size_t>(i) * 3 + 0];
+          pose.pose.position.y = pos[static_cast<std::size_t>(i) * 3 + 1];
+          pose.pose.position.z = pos[static_cast<std::size_t>(i) * 3 + 2];
+          pose.pose.orientation.w = 1.0;
+          path.poses.push_back(std::move(pose));
+        }
+        predicted_path_pub_->publish(path);
+      } catch (const std::exception&) {
+        continue;
+      }
     }
   }
 
@@ -1405,6 +1461,7 @@ class MpcNode : public rclcpp::Node {
 
   std::unique_ptr<curobo::robot::Kinematics> kinematics_;
   std::unique_ptr<curobo::robot::Kinematics> feedback_kinematics_;
+  std::unique_ptr<curobo::robot::Kinematics> path_kinematics_;
   std::unique_ptr<curobo_ros_cpp::PlannerCore> planner_core_;
   curobo::robot::Scene* scene_ = nullptr;
   curobo::robot::MotionPlanner* planner_ = nullptr;
@@ -1435,6 +1492,7 @@ class MpcNode : public rclcpp::Node {
   rclcpp::TimerBase::SharedPtr accept_timer_;
   rclcpp::TimerBase::SharedPtr far_replan_timer_;
   std::thread producer_;
+  std::thread path_thread_;
   std::atomic<bool> running_{true};
 
   std::vector<std::string> controller_names_;
@@ -1520,6 +1578,10 @@ class MpcNode : public rclcpp::Node {
   float* d_fb_pos_ = nullptr;
   float* d_fb_quat_ = nullptr;
   float* d_fb_jac_ = nullptr;
+  float* d_path_q_ = nullptr;
+  float* d_path_pos_ = nullptr;
+  float* d_path_quat_ = nullptr;
+  float* d_path_jac_ = nullptr;
   float* d_brake_q_ = nullptr;
   float* d_brake_v_ = nullptr;
   float* d_brake_a_ = nullptr;

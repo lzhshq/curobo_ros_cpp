@@ -58,7 +58,7 @@ def generate_launch_description():
                     'artifact_dir': artifact_dir,
                     'adapter': 'jtc',
                     'planner_distance_threshold': 100.0,
-                    'command_steps': 12,
+                    'command_steps': 16,
                     'use_measured_state': True,
                     'adapter': 'segment',
                     'brake_check': LaunchConfiguration('brake_check'),

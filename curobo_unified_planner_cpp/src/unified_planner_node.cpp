@@ -8,6 +8,7 @@
 #include <cmath>
 #include <std_srvs/srv/trigger.hpp>
 #include "tf2/convert.h"
+#include "visualization_msgs/msg/marker.hpp"
 #include "tf2/time.h"
 
 #include "curobo_msgs/action/send_trajectory.hpp"
@@ -37,6 +38,7 @@ class UnifiedPlanner : public rclcpp::Node {
 
     goal_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(point_goal_topic_, 10);
     live_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(mpc_goal_topic_, 10);
+    marker_pub_ = create_publisher<visualization_msgs::msg::Marker>("/mpc_goal_marker", 10);
     cancel_client_ = create_client<std_srvs::srv::Trigger>(cancel_service_);
 
     set_planner_srv_ = create_service<curobo_msgs::srv::SetPlanner>(
@@ -58,6 +60,16 @@ class UnifiedPlanner : public rclcpp::Node {
         std::bind(&UnifiedPlanner::handle_cancel, this, std::placeholders::_1),
         std::bind(&UnifiedPlanner::handle_accepted, this, std::placeholders::_1));
 
+    mpc_goal_sub_ = create_subscription<geometry_msgs::msg::Pose>(
+        "/unified_planner/mpc_goal", 10,
+        [this](const geometry_msgs::msg::Pose::SharedPtr message) {
+          if (!action_active_) {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                                 "mpc_goal ignored: no active MPC action");
+            return;
+          }
+          publish_goal(*message, true);
+        });
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
     RCLCPP_INFO(get_logger(), "unified planner facade ready (MPC id=1)");
@@ -95,6 +107,17 @@ class UnifiedPlanner : public rclcpp::Node {
     message.header.stamp = now();
     message.pose = pose;
     (live ? live_pub_ : goal_pub_)->publish(message);
+    visualization_msgs::msg::Marker marker;
+    marker.header = message.header;
+    marker.ns = "mpc_goal";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::SPHERE;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose = message.pose;
+    marker.scale.x = marker.scale.y = marker.scale.z = 0.04;
+    marker.color.g = 1.0;
+    marker.color.a = 0.8;
+    marker_pub_->publish(marker);
   }
 
   void generate_trajectory(
@@ -121,6 +144,11 @@ class UnifiedPlanner : public rclcpp::Node {
   rclcpp_action::CancelResponse handle_cancel(
       const std::shared_ptr<GoalHandle> goal_handle) {
     (void)goal_handle;
+    action_active_ = false;
+    if (cancel_client_->service_is_ready()) {
+      cancel_client_->async_send_request(
+          std::make_shared<std_srvs::srv::Trigger::Request>());
+    }
     return rclcpp_action::CancelResponse::ACCEPT;
   }
 
@@ -165,6 +193,8 @@ class UnifiedPlanner : public rclcpp::Node {
   std::atomic<bool> action_active_{false};
   geometry_msgs::msg::Pose target_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pub_, live_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
+  rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr mpc_goal_sub_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr cancel_client_;
   rclcpp::Service<curobo_msgs::srv::SetPlanner>::SharedPtr set_planner_srv_;
   rclcpp::Service<curobo_msgs::srv::GetPlanners>::SharedPtr get_planners_srv_;

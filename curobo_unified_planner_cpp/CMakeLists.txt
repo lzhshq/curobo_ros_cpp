@@ -13,12 +13,16 @@ find_package(sensor_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 add_executable(unified_planner src/unified_planner_node.cpp)
 target_include_directories(unified_planner PRIVATE include)
 ament_target_dependencies(unified_planner
-  rclcpp rclcpp_action curobo_msgs geometry_msgs sensor_msgs tf2_ros tf2 std_srvs)
+  rclcpp rclcpp_action curobo_msgs geometry_msgs sensor_msgs tf2_ros tf2 std_srvs visualization_msgs)
 
 install(TARGETS unified_planner DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS src/unified_circle_target.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME unified_circle_target)
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 ament_package()

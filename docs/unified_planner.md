@@ -36,3 +36,29 @@ execute_trajectory  → /curobo_mpc/live_goal
 ```
 
 This is a migration facade, not yet a single-process unified solver.
+
+
+## Official live goal
+
+The facade now exposes:
+
+```text
+/unified_planner/mpc_goal   geometry_msgs/Pose
+```
+
+It is ignored unless an `execute_trajectory` action is active, matching the
+official reactive-controller semantics. `execute_trajectory` also publishes:
+
+```text
+/mpc_goal_marker   visualization_msgs/Marker
+```
+
+## Unified circle demo
+
+```bash
+ros2 launch curobo_unified_planner_cpp unified_franka_circle.launch.py
+```
+
+This starts one `execute_trajectory` action and streams the circle through
+`/unified_planner/mpc_goal`; the MPC node only receives the internal
+`/curobo_mpc/live_goal` translation.

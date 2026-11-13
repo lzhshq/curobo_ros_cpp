@@ -452,3 +452,11 @@ Not included (next steps):
 ## License
 
 Apache-2.0.
+
+## Franka bat demo
+
+```bash
+ros2 launch curobo_mpc_cpp franka_bat_demo.launch.py
+```
+
+See [docs/franka_bat_demo.md](docs/franka_bat_demo.md).

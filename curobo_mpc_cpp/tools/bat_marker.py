@@ -34,7 +34,7 @@ class BatMarker(Node):
         marker = InteractiveMarker()
         marker.header.frame_id = self.frame_id
         marker.name = 'bat'
-        marker.description = 'bat: drag Y/Z plane'
+        marker.description = 'bat: drag Z'
         marker.scale = 0.4
         marker.pose.position.x = self.fixed_x
         marker.pose.position.y = self.initial_y
@@ -54,27 +54,17 @@ class BatMarker(Node):
         visual.pose.orientation.y = math.sin(math.pi / 4.0)
         visual.pose.orientation.w = math.cos(math.pi / 4.0)
 
-        # X is fixed; Y and Z are draggable with one YZ-plane handle.
-        plane = Marker()
-        plane.type = Marker.CUBE
-        plane.scale.x = 0.16
-        plane.scale.y = 0.16
-        plane.scale.z = 0.008
-        plane.color.r = 0.2
-        plane.color.g = 0.7
-        plane.color.b = 1.0
-        plane.color.a = 0.55
-
-        handle_yz = InteractiveMarkerControl()
-        handle_yz.always_visible = True
-        handle_yz.interaction_mode = InteractiveMarkerControl.MOVE_PLANE
-        # Plane normal along X: rotate local z onto world x.
-        handle_yz.orientation.w = math.cos(math.pi / 4.0)
-        handle_yz.orientation.y = math.sin(math.pi / 4.0)
-        handle_yz.name = 'move_yz_plane'
-        handle_yz.markers.append(visual)
-        handle_yz.markers.append(plane)
-        marker.controls.append(handle_yz)
+        # Z is the only draggable axis; X/Y are fixed by the feedback callback.
+        handle_z = InteractiveMarkerControl()
+        handle_z.always_visible = True
+        handle_z.interaction_mode = InteractiveMarkerControl.MOVE_AXIS
+        # RViz's MOVE_AXIS uses the matching quaternion component to select the
+        # world axis; y=1 is the Z handle for this setup.
+        handle_z.orientation.w = 1.0
+        handle_z.orientation.y = 1.0
+        handle_z.name = 'move_z'
+        handle_z.markers.append(visual)
+        marker.controls.append(handle_z)
 
         self.server.insert(marker, feedback_callback=self.feedback)
         self.server.applyChanges()
@@ -92,7 +82,8 @@ class BatMarker(Node):
 
     def feedback(self, feedback):
         pose = feedback.pose
-        pose.position.x = self.fixed_x  # only X is fixed
+        pose.position.x = self.fixed_x  # only Z is editable
+        pose.position.y = self.fixed_y
         self.server.setPose(feedback.marker_name, pose)
         self.server.applyChanges()
         self.publish_pose(pose, self.get_clock().now().to_msg())

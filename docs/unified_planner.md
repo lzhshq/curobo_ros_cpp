@@ -26,6 +26,11 @@ interfaces.
 
 ## Status
 
-The services and action server are present in the MPC node. The live
-`mpc_goal` action path is still being debugged; do not treat this as a completed
-unified solver yet.
+The services, action server, and live `mpc_goal` path are now handled inside the
+MPC node. The unified circle demo starts the action and streams the circle
+through `/unified_planner/mpc_goal`.
+
+Action feedback currently reports tracking state only. TF-based position-error
+feedback was removed because a blocking `lookupTransform` in the single-threaded
+executor stalled joint-state callbacks; a non-blocking/dedicated-thread feedback
+implementation is still pending.

@@ -1166,6 +1166,7 @@ class MpcNode : public rclcpp::Node {
         goal->target_pose.position.z == 0.0) {
       return rclcpp_action::GoalResponse::REJECT;
     }
+    action_active_ = true;
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
   }
 
@@ -1191,26 +1192,8 @@ class MpcNode : public rclcpp::Node {
     if (!action_active_) return;
     auto feedback = std::make_shared<SendTrajectory::Feedback>();
     feedback->state = "TRACKING";
-    geometry_msgs::msg::TransformStamped transform;
-    try {
-      transform = tf_buffer_->lookupTransform(base_frame_, tool_frame_, tf2::TimePointZero);
-    } catch (const std::exception&) {
-      feedback->state = "FAILED";
-      feedback->position_error = -1.0;
-      goal_handle->publish_feedback(feedback);
-      return;
-    }
-    const auto& p = transform.transform.translation;
-    const double dx = p.x - action_target_.position.x;
-    const double dy = p.y - action_target_.position.y;
-    const double dz = p.z - action_target_.position.z;
-    feedback->position_error_x = dx;
-    feedback->position_error_y = dy;
-    feedback->position_error_z = dz;
-    feedback->position_error = std::sqrt(dx * dx + dy * dy + dz * dz);
-    feedback->on_target = feedback->position_error < 0.01;
-    feedback->hold_count = feedback->on_target ? feedback->hold_count + 1 : 0;
-    if (feedback->on_target) feedback->state = "ON_TARGET";
+    feedback->position_error = 0.0;
+    feedback->on_target = false;
     goal_handle->publish_feedback(feedback);
   }
 

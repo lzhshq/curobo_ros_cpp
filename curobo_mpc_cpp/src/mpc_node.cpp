@@ -853,7 +853,7 @@ class MpcNode : public rclcpp::Node {
           active = false;
         }
       }
-      if (active) {
+      if (active && !adapter_->active()) {
         try {
           std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
           std::vector<float> zero(static_cast<std::size_t>(dof_), 0.0F);
@@ -899,6 +899,7 @@ class MpcNode : public rclcpp::Node {
             proposal_a_ = std::move(horizon_a);
             proposal_dt_ = result.trajectory_dt;
             proposal_fresh_ = true;
+            executed_knots_ = 0;  // shift only once per accepted segment
           }
         } catch (const std::exception& exception) {
           set_status(std::string("producer error: ") + exception.what());

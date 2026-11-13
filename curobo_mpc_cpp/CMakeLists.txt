@@ -70,6 +70,10 @@ install(PROGRAMS tools/target_cycle.py
 install(PROGRAMS tools/mpc_regression.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME mpc_regression)
+
+install(PROGRAMS tools/circle_target.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME circle_target)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 ament_package()

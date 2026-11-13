@@ -99,6 +99,8 @@ class MpcNode : public rclcpp::Node {
         "fault_topic", "/curobo_mpc/fault");
     world_topic_ = this->declare_parameter<std::string>(
         "world_topic", "/curobo_world/obstacle_update");
+    live_goal_topic_ = this->declare_parameter<std::string>(
+        "live_goal_topic", "/curobo_mpc/live_goal");
     bat_length_ = this->declare_parameter<double>("bat_length", 0.4);
     bat_radius_ = this->declare_parameter<double>("bat_radius", 0.03);
     bat_initial_x_ = this->declare_parameter<double>("bat_initial_x", 0.45);
@@ -263,6 +265,9 @@ class MpcNode : public rclcpp::Node {
         std::bind(&MpcNode::joint_callback, this, std::placeholders::_1));
     goal_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
         goal_topic, 10, std::bind(&MpcNode::goal_callback, this, std::placeholders::_1));
+    live_goal_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        live_goal_topic_, 10,
+        std::bind(&MpcNode::live_goal_callback, this, std::placeholders::_1));
     cancel_srv_ = this->create_service<std_srvs::srv::Trigger>(
         "~/cancel", std::bind(&MpcNode::cancel_callback, this, std::placeholders::_1,
                               std::placeholders::_2));
@@ -458,6 +463,83 @@ class MpcNode : public rclcpp::Node {
     return true;
   }
 
+  void live_goal_callback(const geometry_msgs::msg::PoseStamped::SharedPtr message) {
+    const auto& o = message->pose.orientation;
+    const double norm = std::sqrt(o.x * o.x + o.y * o.y + o.z * o.z + o.w * o.w);
+    if (!std::isfinite(norm) || norm < 1e-9) return;
+    std::vector<float> positions(static_cast<std::size_t>(tool_count_) * 3);
+    std::vector<float> quats(static_cast<std::size_t>(tool_count_) * 4);
+    for (int tool = 0; tool < tool_count_; ++tool) {
+      positions[static_cast<std::size_t>(tool) * 3 + 0] = message->pose.position.x;
+      positions[static_cast<std::size_t>(tool) * 3 + 1] = message->pose.position.y;
+      positions[static_cast<std::size_t>(tool) * 3 + 2] = message->pose.position.z;
+      quats[static_cast<std::size_t>(tool) * 4 + 0] = o.w / norm;
+      quats[static_cast<std::size_t>(tool) * 4 + 1] = o.x / norm;
+      quats[static_cast<std::size_t>(tool) * 4 + 2] = o.y / norm;
+      quats[static_cast<std::size_t>(tool) * 4 + 3] = o.z / norm;
+    }
+
+    std::vector<float> q;
+    if (!snapshot_state(q)) return;
+    std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
+    check_cuda(cudaMemcpy(d_goal_pos_, positions.data(), positions.size() * sizeof(float),
+                          cudaMemcpyHostToDevice), "live goal pos");
+    check_cuda(cudaMemcpy(d_goal_quat_, quats.data(), quats.size() * sizeof(float),
+                          cudaMemcpyHostToDevice), "live goal quat");
+    if (live_mode_) {
+      mpc_->update_cartesian_target(d_goal_pos_, d_goal_quat_);
+      return;
+    }
+
+    const auto info = planner_->info();
+    std::vector<float> seed(static_cast<std::size_t>(knots_) * dof_);
+    curobo::robot::PoseMotionPlanningRequest request;
+    check_cuda(cudaMemcpy(d_q_, q.data(), q.size() * sizeof(float), cudaMemcpyHostToDevice),
+               "live goal q");
+    request.current_position = d_q_;
+    request.goal_positions = d_goal_pos_;
+    request.goal_quaternions = d_goal_quat_;
+    request.optimized_knots = d_plan_knots_;
+    request.trajectory_position = d_plan_q_;
+    request.trajectory_velocity = d_plan_v_;
+    request.trajectory_acceleration = d_plan_a_;
+    request.trajectory_jerk = d_plan_j_;
+    request.success = d_plan_success_;
+    request.used_rrt = d_plan_used_rrt_;
+    request.rrt_iterations = d_plan_rrt_iters_;
+    request.cost = d_plan_cost_;
+    request.collision_cost = d_plan_collision_;
+    request.trajectory_dt = d_plan_dt_;
+    request.position_error = d_plan_position_error_;
+    request.orientation_error = d_plan_orientation_error_;
+    planner_->plan_pose(request);
+    uint8_t ok = 0;
+    check_cuda(cudaMemcpy(&ok, d_plan_success_, 1, cudaMemcpyDeviceToHost),
+               "live plan success");
+    if (ok != 0) {
+      check_cuda(cudaMemcpy(seed.data(), d_plan_knots_,
+                            seed.size() * sizeof(float), cudaMemcpyDeviceToHost),
+                 "live plan seed");
+    } else {
+      for (int i = 0; i < knots_; ++i) {
+        std::copy(q.begin(), q.end(), seed.begin() + i * dof_);
+      }
+    }
+    check_cuda(cudaMemcpy(d_seed_, seed.data(), seed.size() * sizeof(float),
+                          cudaMemcpyHostToDevice), "live seed");
+    curobo::robot::MpcCartesianConfig objective;
+    objective.constrain_path = false;
+    mpc_->reset_cartesian(d_goal_pos_, d_goal_quat_, d_seed_, objective);
+    live_mode_ = true;
+    planner_mode_ = false;
+    active_goal_ = true;
+    proposal_fresh_ = false;
+    executed_knots_ = 1;
+    has_predicted_ = false;
+    set_status("live tracking");
+    (void)info;
+  }
+
   void goal_callback(const geometry_msgs::msg::PoseStamped::SharedPtr message) {
     std::vector<float> q;
     if (!snapshot_state(q)) {
@@ -483,6 +565,7 @@ class MpcNode : public rclcpp::Node {
     }
     std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
     planner_mode_ = false;
+    live_mode_ = false;
     check_cuda(cudaMemcpy(d_goal_pos_, positions.data(), positions.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "goal pos");
     check_cuda(cudaMemcpy(d_goal_quat_, quats.data(), quats.size() * sizeof(float),
@@ -981,6 +1064,7 @@ class MpcNode : public rclcpp::Node {
   std::string adapter_name_;
   std::string action_;
   std::string world_topic_;
+  std::string live_goal_topic_;
   double bat_length_ = 0.6;
   double bat_radius_ = 0.03;
   double bat_initial_x_ = 0.45;
@@ -1017,6 +1101,7 @@ class MpcNode : public rclcpp::Node {
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr live_goal_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr fault_sub_;
   rclcpp::Subscription<curobo_planner_interfaces::msg::ObstacleUpdate>::SharedPtr world_sub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_srv_;
@@ -1038,6 +1123,7 @@ class MpcNode : public rclcpp::Node {
   bool fault_ = false;
   bool has_bat_pose_ = false;
   bool planner_mode_ = false;
+  bool live_mode_ = false;
   double planner_distance_threshold_ = 0.15;
   double far_replan_period_ = 1.0;
   double far_replan_min_move_ = 0.01;

@@ -206,3 +206,27 @@ TCP ≈ (0.161, 0.038, 0.645)
 
 Still to do: tune `command_steps` down only after checking knot alignment and
 B-spline support; do not cut the horizon arbitrarily.
+
+## Live target / circle tracking
+
+`/curobo_mpc/live_goal` updates a Cartesian target **without resetting MPC**.
+The first live target calls `reset_cartesian()`; subsequent targets call
+`update_cartesian_target()` only. This matches the C++ `MpcController` API.
+
+Demo:
+
+```bash
+ros2 launch curobo_mpc_cpp franka_mpc_circle.launch.py
+```
+
+It tracks a YZ circle:
+
+```text
+center = (0.161283, 0.0, 0.637)
+radius = 0.04 m
+period = 5 s
+target rate = 10 Hz
+```
+
+The normal `/curobo_mpc/goal` still performs a full plan/IK/reset for one-shot
+goals. Use `/curobo_mpc/live_goal` for continuous target streams.

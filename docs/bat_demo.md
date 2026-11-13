@@ -6,20 +6,12 @@ RViz Y/Z plane.
 ## Control
 
 The bat is a capsule with its long axis along world **X**. RViz exposes only
-**Y/Z translation**; X is fixed. It is not rotated by the marker.
+**Z translation**; X is fixed. It is not rotated by the marker.
 
 ## Run
 
 ```bash
-# 1. fake FPC plant
-ros2 launch curobo_execution_cpp fake_fpc.launch.py
-
-# 2. MPC with the bat capsule
-ros2 launch curobo_mpc_cpp mpc.launch.py \
-  artifact_dir:=/home/vitai/curobo-fast/cpp_runtime/robot/artifacts/franka
-
-# 3. interactive marker
-ros2 launch curobo_mpc_cpp bat_marker.launch.py
+ros2 launch curobo_mpc_cpp franka_bat_demo.launch.py
 
 # 4. RViz
 ros2 launch curobo_planner_cpp rviz.launch.py \

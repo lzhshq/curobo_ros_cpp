@@ -3,7 +3,7 @@
 <package format="3">
   <name>curobo_mpc_cpp</name>
   <version>0.7.1</version>
-  <description>Experimental C++ cuRobo MPC node skeleton with FPC horizon streaming.</description>
+  <description>C++ cuRobo MPC node: planner for far targets and MPC for local tracking.</description>
   <maintainer email="384336014@qq.com">lzhshq</maintainer>
   <license>Apache-2.0</license>
 

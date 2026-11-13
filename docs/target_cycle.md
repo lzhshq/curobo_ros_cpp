@@ -14,7 +14,7 @@ not freeze.
 
 ```bash
 # 1
-ros2 launch curobo_execution_cpp fake_fpc.launch.py
+ros2 launch curobo_execution_cpp fake_franka.launch.py
 
 # 2
 ros2 launch curobo_mpc_cpp mpc.launch.py \

@@ -29,7 +29,6 @@ workspace `~/curobo_ros_ws/src/curobo_ros_cpp` is a symlink to it.
 
 - [Architecture](docs/architecture.md): packages, data flow, threading, artifacts
 - [Bringup](docs/bringup.md): robot descriptor and one-command stack
-- [FPC](docs/fpc.md): streaming position adapter and fake FPC
 - [MPC](docs/mpc.md): official timing, C++ spike, frequency budget
 - [Bat demo](docs/bat_demo.md): RViz Y/Z interactive bat obstacle
 - [Target cycle](docs/target_cycle.md): alternating A/B MPC goals
@@ -44,7 +43,7 @@ workspace `~/curobo_ros_ws/src/curobo_ros_cpp` is a symlink to it.
 |---|---|
 | `curobo_core_cpp` | ROS-free planning library (`PlannerCore`) |
 | `curobo_planner_cpp` | Thin `rclcpp` node + `PlanPose`/scene services + `planned_trajectory` publisher |
-| `curobo_execution_cpp` | Trajectory executor + JTC/topic/FPC adapters |
+| `curobo_execution_cpp` | Trajectory executor + JTC/topic adapters |
 | `curobo_planner_interfaces` | Minimal `PlanPose`, `AddObject`, `RemoveObject`, `ClearObjects` services (no nav2 dependency) |
 | `curobo_bringup` | Robot descriptors + combined planner/executor/RViz launch |
 | `curobo_mpc_cpp` | Experimental producer/consumer C++ MPC node |

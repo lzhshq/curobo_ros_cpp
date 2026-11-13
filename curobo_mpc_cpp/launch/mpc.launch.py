@@ -41,7 +41,7 @@ def generate_launch_description():
             description='Artifact directory override'),
         DeclareLaunchArgument(
             'command_topic', default_value='',
-            description='FPC command topic override'),
+            description='topic adapter command override'),
         DeclareLaunchArgument(
             'command_interval', default_value='',
             description='Accept/send interval override (s)'),

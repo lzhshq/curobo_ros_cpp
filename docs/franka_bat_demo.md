@@ -7,7 +7,15 @@ the Z-draggable bat capsule, and the alternating A/B target cycle.
 ros2 launch curobo_mpc_cpp franka_bat_demo.launch.py
 ```
 
-No arguments are required. The defaults are installed with the package:
+No arguments are required on the development machine. On a new machine set the
+artifact once, then the same command works:
+
+```bash
+export CUROBO_ARTIFACT_DIR=/path/to/artifacts/franka
+ros2 launch curobo_mpc_cpp franka_bat_demo.launch.py
+```
+
+The defaults are:
 
 ```text
 A: (0.30, +0.30, 0.30)
@@ -38,3 +46,7 @@ ros2 launch curobo_mpc_cpp franka_bat_demo.launch.py \
   artifact_dir:=/path/to/artifacts/franka \
   robot_description:=/path/to/panda.urdf
 ```
+
+## Regression
+
+See [testing.md](testing.md#headless-mpc-demo-regression).

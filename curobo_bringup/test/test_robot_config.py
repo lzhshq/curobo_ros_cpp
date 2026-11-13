@@ -28,15 +28,6 @@ def test_ar5_descriptor_builds_mappings() -> None:
     assert config.fake_launch is None
 
 
-def test_franka_fpc_descriptor() -> None:
-    _require_artifacts()
-    config = load_robot_config("franka_fpc")
-    assert config.execution["adapter"] == "fpc"
-    assert config.execution["command_topic"] == "/position_forward_controller/commands"
-    assert config.execution["publish_rate"] == 100.0
-    assert config.fake_launch is not None
-
-
 def test_franka_descriptor_builds_mappings() -> None:
     _require_artifacts()
     config = load_robot_config("franka")

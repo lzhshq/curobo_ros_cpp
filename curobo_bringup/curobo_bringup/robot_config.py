@@ -229,7 +229,7 @@ def load_robot_config(
         raise ValueError(f"{descriptor}: execution.adapter is required")
     if adapter == "jtc" and not action:
         raise ValueError(f"{descriptor}: execution.action is required for jtc")
-    if adapter in ("fpc", "topic") and not command_topic:
+    if adapter == "topic" and not command_topic:
         raise ValueError(
             f"{descriptor}: execution.command_topic is required for {adapter}"
         )

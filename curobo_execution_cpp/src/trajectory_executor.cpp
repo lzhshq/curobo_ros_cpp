@@ -6,7 +6,6 @@
 #include <stdexcept>
 #include <utility>
 
-#include "curobo_execution_cpp/fpc_adapter.hpp"
 #include "curobo_execution_cpp/jtc_adapter.hpp"
 #include "curobo_execution_cpp/topic_adapter.hpp"
 
@@ -50,10 +49,8 @@ TrajectoryExecutor::TrajectoryExecutor() : rclcpp::Node("curobo_executor") {
                                             goal_time_tolerance);
   } else if (adapter == "topic") {
     adapter_ = std::make_unique<TopicAdapter>(this, command_topic);
-  } else if (adapter == "fpc") {
-    adapter_ = std::make_unique<FpcAdapter>(this, command_topic, joint_names, publish_rate);
   } else {
-    throw std::runtime_error("unknown adapter '" + adapter + "' (use jtc, topic or fpc)");
+    throw std::runtime_error("unknown adapter '" + adapter + "' (use jtc or topic)");
   }
 
   trajectory_sub_ = this->create_subscription<trajectory_msgs::msg::JointTrajectory>(

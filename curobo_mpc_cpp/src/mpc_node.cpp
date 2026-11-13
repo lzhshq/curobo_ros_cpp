@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "curobo_execution_cpp/execution_adapter.hpp"
-#include "curobo_execution_cpp/fpc_adapter.hpp"
 #include "curobo_execution_cpp/jtc_adapter.hpp"
 #include "curobo_execution_cpp/topic_adapter.hpp"
 #include "curobo_robot_runtime/kinematics.h"
@@ -65,7 +64,7 @@ void set_duration(builtin_interfaces::msg::Duration& duration, double seconds) {
  * Consumer timers:
  *  - accept timer (command_interval): accept the latest validated proposal and
  *    make it the active command horizon;
- *  - FPC/JTC adapter: streams or sends the accepted segment.
+ *  - JTC adapter: sends the accepted segment.
  *
  * This mirrors curobo_ros: solve continuously, send at a fixed command cadence.
  * It is still a scaffold: admission is only validation + freshness, not a real
@@ -84,7 +83,7 @@ class MpcNode : public rclcpp::Node {
         "command_topic", "/position_forward_controller/commands");
     control_rate_ = this->declare_parameter<double>("control_rate", 30.0);
     command_interval_ = this->declare_parameter<double>("command_interval", 0.48);
-    adapter_name_ = this->declare_parameter<std::string>("adapter", "fpc");
+    adapter_name_ = this->declare_parameter<std::string>("adapter", "jtc");
     action_ = this->declare_parameter<std::string>(
         "action", "/position_joint_trajectory_controller/follow_joint_trajectory");
     publish_rate_ = this->declare_parameter<double>("publish_rate", 100.0);
@@ -249,10 +248,7 @@ class MpcNode : public rclcpp::Node {
                           static_cast<std::size_t>(steps_) * dof_ * sizeof(float)),
                "brake j");
 
-    if (adapter_name_ == "fpc") {
-      adapter_ = std::make_unique<curobo_execution_cpp::FpcAdapter>(
-          this, command_topic_, controller_names_, publish_rate_);
-    } else if (adapter_name_ == "jtc") {
+    if (adapter_name_ == "jtc") {
       adapter_ = std::make_unique<curobo_execution_cpp::JtcAdapter>(
           this, action_, controller_names_, goal_tolerance_, goal_time_tolerance_);
     } else if (adapter_name_ == "topic") {

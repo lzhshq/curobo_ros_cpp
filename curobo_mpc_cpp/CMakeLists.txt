@@ -64,6 +64,10 @@ install(PROGRAMS tools/bat_marker.py
 install(PROGRAMS tools/target_cycle.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME target_cycle)
+
+install(PROGRAMS tools/mpc_regression.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME mpc_regression)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 ament_package()

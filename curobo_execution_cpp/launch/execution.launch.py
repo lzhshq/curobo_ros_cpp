@@ -70,7 +70,7 @@ def generate_launch_description():
             description='Override JTC action name'),
         DeclareLaunchArgument(
             'command_topic', default_value='',
-            description='Override FPC/topic command topic'),
+            description='Override topic command'),
         DeclareLaunchArgument(
             'joint_names', default_value='',
             description='Override controller joint names, comma-separated'),
@@ -85,6 +85,6 @@ def generate_launch_description():
             description='Override goal_time_tolerance'),
         DeclareLaunchArgument(
             'publish_rate', default_value='',
-            description='Override FPC publish rate'),
+            description='Override stream publish rate'),
         OpaqueFunction(function=_launch_setup),
     ])

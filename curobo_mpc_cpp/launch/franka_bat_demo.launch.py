@@ -11,6 +11,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
@@ -23,16 +24,23 @@ def generate_launch_description():
 
     artifact_dir = LaunchConfiguration('artifact_dir')
     robot_description = LaunchConfiguration('robot_description')
+    default_artifact = os.environ.get(
+        'CUROBO_ARTIFACT_DIR',
+        '/home/vitai/curobo-fast/cpp_runtime/robot/artifacts/franka')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'artifact_dir',
-            default_value='/home/vitai/curobo-fast/cpp_runtime/robot/artifacts/franka',
+            default_value=default_artifact,
             description='cuRobo Fast artifact directory'),
         DeclareLaunchArgument(
             'robot_description',
             default_value=os.path.join(panda_share, 'urdf', 'panda.urdf'),
             description='URDF used by robot_state_publisher/RViz'),
+        DeclareLaunchArgument(
+            'autostart_cycle',
+            default_value='true',
+            description='Start the alternating A/B target cycle'),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(
@@ -57,5 +65,6 @@ def generate_launch_description():
             period=3.0,
             actions=[IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(os.path.join(
-                    mpc_share, 'launch', 'target_cycle.launch.py')))]),
+                    mpc_share, 'launch', 'target_cycle.launch.py')),
+                condition=IfCondition(LaunchConfiguration('autostart_cycle')))]),
     ])

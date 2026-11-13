@@ -12,7 +12,7 @@ namespace curobo_execution_cpp {
  * Transport adapter for a planned JointTrajectory.
  *
  * The executor owns timing, validation, and status; the adapter owns the
- * robot/controller-specific transport (JTC action, topic bridge, FPC, ...).
+ * robot/controller-specific transport (JTC action, topic bridge, ...).
  */
 class ExecutionAdapter {
  public:

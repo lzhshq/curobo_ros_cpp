@@ -57,8 +57,7 @@ All runs were feasible and used **one graph capture**.
 - **33 Hz (30 ms)** fits with margin for both Franka and AR5.
 - Use `optimization_dt`/`trajectory_dt` around **0.03 s (33 Hz)** as the safe
   default on this machine.
-- The FPC stream can still publish at **100 Hz**; that only interpolates the
-  accepted MPC trajectory, it does not run the optimizer at 100 Hz.
+- JTC executes the accepted segment; it does not run the optimizer at 100 Hz.
 
 ## MPC node
 
@@ -72,26 +71,21 @@ producer thread (control_rate=30 Hz):
   → validate_trajectory()
   → store latest proposal
 
-accept timer (command_interval=0.24 s):
-  accept the latest valid proposal
-  → send a segment to the ExecutionAdapter
+accept poll (20 ms):
+  wait until the previous JTC segment is complete
+  → accept the latest valid proposal
+  → send the next segment to the JTC adapter
   → advance executed_knots
-
-ExecutionAdapter:
-  FpcAdapter  → streams Float64MultiArray at publish_rate
-  JtcAdapter  → sends FollowJointTrajectory and exposes the action result
 ```
 
-The producer never blocks on publishing. The adapter owns the transport, so the
-100 Hz FPC stream does not wait for the 20–30 ms solver.
+The producer never blocks on publishing. Event-driven acceptance avoids the
+fixed command-interval gap between JTC segments.
 
 Current configuration:
 
 ```yaml
 control_rate: 30.0       # desired producer cadence
-adapter: fpc             # fpc/jtc/topic
-publish_rate: 100.0      # FPC stream cadence
-command_interval: 0.24   # accept/latest-action window (curobo_ros default)
+adapter: jtc             # jtc/topic
 trajectory_dt: 0.03      # MPC sample interval
 ```
 
@@ -103,7 +97,7 @@ Run:
 
 ```bash
 # terminal 1
-ros2 launch curobo_execution_cpp fake_fpc.launch.py
+ros2 launch curobo_execution_cpp fake_franka.launch.py
 
 # terminal 2
 ros2 launch curobo_mpc_cpp mpc.launch.py \
@@ -130,7 +124,7 @@ Current limitations:
   rate still needs measurement;
 - goal is assumed to be in the artifact base frame (no TF transform);
 - no RViz goal interaction yet;
-- tested against fake FPC only.
+- tested against fake JTC only.
 
 ## Official-style loop spike
 

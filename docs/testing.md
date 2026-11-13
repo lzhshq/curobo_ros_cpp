@@ -58,17 +58,13 @@ colcon test --packages-select curobo_bringup --event-handlers console_direct+
 
 It runs:
 
-- descriptor validation for AR5/Franka/Franka FPC;
+- descriptor validation for AR5/Franka;
 - an end-to-end Franka JTC stack test:
   - starts `robot_stack.launch.py robot:=franka fake:=auto rviz:=false`
   - calls `PlanPose`
   - calls `execute_latest`
   - waits for JTC `result code=0`
   - shuts the stack down
-- an end-to-end FPC stack test:
-  - starts `robot:=franka_fpc` with the fake FPC plant
-  - plans and executes
-  - waits for `completed`
 
 The end-to-end tests use `ROS_DOMAIN_ID=91`/`92`, so they do not collide with a
 running demo on domain 79. They skip when `CUROBO_ARTIFACT_ROOT` is unset.
@@ -99,3 +95,33 @@ ends at the trajectory end.
 - Tests require a CUDA GPU and a matching artifact; they are not CPU-only.
 - CI can run build/lint without a GPU; artifact tests stay local.
 - The tests do not cover RViz rendering; RViz is validated manually.
+
+## Headless MPC demo regression
+
+The demo can be started without the A/B driver, then checked with TF:
+
+```bash
+# terminal 1
+ros2 launch curobo_mpc_cpp franka_bat_demo.launch.py autostart_cycle:=false
+
+# terminal 2
+ros2 run curobo_mpc_cpp mpc_regression
+```
+
+It checks home, a near point, A and B. Expected on the reference machine:
+
+```text
+home:    error=0.00 cm  PASS
+small_y: error≈2 cm    PASS
+a:       error≈1.3 cm  PASS
+b:       error≈1.8 cm  PASS
+```
+
+The default pass threshold is 2 cm; use `--tolerance` to tighten it.
+
+The script assumes the Franka artifact in the running demo is already exported
+for the local GPU. On a new machine set:
+
+```bash
+export CUROBO_ARTIFACT_DIR=/path/to/artifacts/franka
+```

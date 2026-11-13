@@ -14,8 +14,7 @@ find_package(std_msgs REQUIRED)
 
 add_library(curobo_execution_adapters SHARED
   src/jtc_adapter.cpp
-  src/topic_adapter.cpp
-  src/fpc_adapter.cpp)
+  src/topic_adapter.cpp)
 
 target_include_directories(curobo_execution_adapters PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -59,10 +58,6 @@ install(DIRECTORY include/
 install(PROGRAMS tools/fake_jtc.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME fake_jtc)
-
-install(PROGRAMS tools/fake_fpc.py
-  DESTINATION lib/${PROJECT_NAME}
-  RENAME fake_fpc)
 
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})

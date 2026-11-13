@@ -9,7 +9,6 @@ curobo_executor:
 
     # Empty = use the joint_names in the planned trajectory.
     # Set to controller joint names when the artifact uses different names.
-    joint_names: []
 
     time_scale: 1.0
     goal_tolerance: 0.02

@@ -68,8 +68,8 @@ not a hard-coded absolute path in new code.
    - A unified planner facade may expose `execute_trajectory`, but it must
      delegate execution to the execution layer, not bypass it.
 
-   Current known violation: `curobo_mpc_cpp/src/mpc_node.cpp` directly owns a
-   `JtcAdapter`. This is a migration target, not a pattern to copy.
+   The MPC node now sends segments through `curobo_execution_cpp`; JTC is owned
+   only by the execution node.
 
 4. **Official interfaces are the public contract.**
    Prefer, in this order:

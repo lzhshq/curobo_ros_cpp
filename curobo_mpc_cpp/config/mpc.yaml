@@ -20,7 +20,7 @@ curobo_mpc:
     bat_initial_x: 0.30
     bat_initial_y: 0.0
     bat_initial_z: 0.30
-    adapter: jtc
+    adapter: segment
     publish_rate: 100.0
     command_topic: /position_forward_controller/commands
     joint_states_topic: /joint_states

@@ -11,10 +11,12 @@ find_package(control_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(curobo_execution_interfaces REQUIRED)
 
 add_library(curobo_execution_adapters SHARED
   src/jtc_adapter.cpp
-  src/topic_adapter.cpp)
+  src/topic_adapter.cpp
+  src/segment_action_adapter.cpp)
 
 target_include_directories(curobo_execution_adapters PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -26,7 +28,8 @@ ament_target_dependencies(curobo_execution_adapters
   control_msgs
   trajectory_msgs
   std_srvs
-  std_msgs)
+  std_msgs
+  curobo_execution_interfaces)
 
 add_executable(trajectory_executor
   src/trajectory_executor.cpp
@@ -41,7 +44,8 @@ ament_target_dependencies(trajectory_executor
   control_msgs
   trajectory_msgs
   std_srvs
-  std_msgs)
+  std_msgs
+  curobo_execution_interfaces)
 
 target_link_libraries(trajectory_executor
   curobo_execution_adapters)
@@ -69,5 +73,6 @@ ament_export_dependencies(
   control_msgs
   trajectory_msgs
   std_srvs
-  std_msgs)
+  std_msgs
+  curobo_execution_interfaces)
 ament_package()

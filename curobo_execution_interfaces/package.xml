@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>curobo_execution_interfaces</name>
+  <version>0.1.0</version>
+  <description>Planning-to-execution segment action.</description>
+  <maintainer email="384336014@qq.com">lzhshq</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <depend>trajectory_msgs</depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

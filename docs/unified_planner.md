@@ -35,3 +35,14 @@ producer thread, so `plan_pose/reset_cartesian/update_cartesian_target` no longe
 run inside the executor. `/mpc_goal_marker` is published; `/mpc_costs` reports
 available FK/collision terms. Action feedback currently carries state only;
 TF-based position feedback is deferred to a dedicated thread.
+
+## Planning / execution split
+
+The MPC node no longer owns JTC. It sends short segments through:
+
+```text
+/curobo_execution/execute_segment   curobo_execution_interfaces/action/ExecuteSegment
+```
+
+The execution node (`curobo_executor`) owns the JTC adapter; MPC only owns
+`PlannerCore`, World, and `MpcController`.

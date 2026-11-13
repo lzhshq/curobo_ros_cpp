@@ -9,6 +9,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_srvs/srv/trigger.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
+#include "curobo_execution_interfaces/action/execute_segment.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 
 #include "curobo_execution_cpp/execution_adapter.hpp"
@@ -17,6 +19,8 @@ namespace curobo_execution_cpp {
 
 class TrajectoryExecutor : public rclcpp::Node {
  public:
+  using ExecuteSegment = curobo_execution_interfaces::action::ExecuteSegment;
+  using SegmentGoalHandle = rclcpp_action::ServerGoalHandle<ExecuteSegment>;
   TrajectoryExecutor();
 
  private:
@@ -27,6 +31,12 @@ class TrajectoryExecutor : public rclcpp::Node {
                        std::shared_ptr<std_srvs::srv::Trigger::Response> response);
   void status_callback(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                        std::shared_ptr<std_srvs::srv::Trigger::Response> response);
+  rclcpp_action::GoalResponse handle_segment_goal(
+      const rclcpp_action::GoalUUID& uuid,
+      std::shared_ptr<const ExecuteSegment::Goal> goal);
+  rclcpp_action::CancelResponse handle_segment_cancel(
+      const std::shared_ptr<SegmentGoalHandle> goal_handle);
+  void handle_segment_accepted(const std::shared_ptr<SegmentGoalHandle> goal_handle);
 
   bool prepare_trajectory(trajectory_msgs::msg::JointTrajectory& trajectory,
                           std::string& error) const;
@@ -36,6 +46,7 @@ class TrajectoryExecutor : public rclcpp::Node {
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr execute_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr status_srv_;
+  rclcpp_action::Server<ExecuteSegment>::SharedPtr segment_action_server_;
 
   mutable std::mutex mutex_;
   trajectory_msgs::msg::JointTrajectory latest_;

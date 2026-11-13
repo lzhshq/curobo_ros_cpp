@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "curobo_execution_cpp/trajectory_executor.hpp"
 
+#include <chrono>
+#include <thread>
+
 #include <cmath>
 #include <stdexcept>
 #include <utility>
@@ -70,6 +73,12 @@ TrajectoryExecutor::TrajectoryExecutor() : rclcpp::Node("curobo_executor") {
       std::bind(&TrajectoryExecutor::status_callback, this, std::placeholders::_1,
                 std::placeholders::_2));
 
+  segment_action_server_ = rclcpp_action::create_server<ExecuteSegment>(
+      this, "/curobo_execution/execute_segment",
+      std::bind(&TrajectoryExecutor::handle_segment_goal, this, std::placeholders::_1,
+                std::placeholders::_2),
+      std::bind(&TrajectoryExecutor::handle_segment_cancel, this, std::placeholders::_1),
+      std::bind(&TrajectoryExecutor::handle_segment_accepted, this, std::placeholders::_1));
   RCLCPP_INFO(this->get_logger(),
               "executor ready: adapter=%s, trajectory=%s, action=%s", adapter.c_str(),
               trajectory_topic.c_str(), action.c_str());
@@ -171,6 +180,59 @@ void TrajectoryExecutor::status_callback(
   response->success = true;
   response->message = std::string(adapter_->active() ? "active: " : "idle: ") +
                       adapter_->status();
+}
+
+
+rclcpp_action::GoalResponse TrajectoryExecutor::handle_segment_goal(
+    const rclcpp_action::GoalUUID&, std::shared_ptr<const ExecuteSegment::Goal> goal) {
+  if (goal->trajectory.points.empty()) {
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+}
+
+rclcpp_action::CancelResponse TrajectoryExecutor::handle_segment_cancel(
+    const std::shared_ptr<SegmentGoalHandle> goal_handle) {
+  (void)goal_handle;
+  adapter_->cancel();
+  return rclcpp_action::CancelResponse::ACCEPT;
+}
+
+void TrajectoryExecutor::handle_segment_accepted(
+    const std::shared_ptr<SegmentGoalHandle> goal_handle) {
+  std::thread([this, goal_handle]() {
+    auto trajectory = goal_handle->get_goal()->trajectory;
+    std::string error;
+    if (!prepare_trajectory(trajectory, error)) {
+      auto result = std::make_shared<ExecuteSegment::Result>();
+      result->success = false;
+      result->message = error;
+      goal_handle->abort(result);
+      return;
+    }
+    if (!adapter_->send(trajectory, error)) {
+      auto result = std::make_shared<ExecuteSegment::Result>();
+      result->success = false;
+      result->message = error;
+      goal_handle->abort(result);
+      return;
+    }
+    while (rclcpp::ok() && adapter_->active()) {
+      if (goal_handle->is_canceling()) {
+        adapter_->cancel();
+        auto result = std::make_shared<ExecuteSegment::Result>();
+        result->success = false;
+        result->message = "canceled";
+        goal_handle->canceled(result);
+        return;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    auto result = std::make_shared<ExecuteSegment::Result>();
+    result->success = !adapter_->active();
+    result->message = adapter_->status();
+    if (result->success) goal_handle->succeed(result); else goal_handle->abort(result);
+  }).detach();
 }
 
 }  // namespace curobo_execution_cpp

@@ -16,6 +16,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     mpc_share = get_package_share_directory('curobo_mpc_cpp')
+    execution_share = get_package_share_directory('curobo_execution_cpp')
     planner_share = get_package_share_directory('curobo_planner_cpp')
     panda_share = get_package_share_directory('moveit_resources_panda_description')
 
@@ -45,6 +46,9 @@ def generate_launch_description():
                 'publish_rate': 100.0,
                 'initial_positions': [0.0, -1.3, 0.0, -2.5, 0.0, 1.5, 0.8],
             }]),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(
+                execution_share, 'launch', 'execution.launch.py'))),
         Node(
             package='curobo_mpc_cpp', executable='mpc_node', name='curobo_mpc',
             output='screen',
@@ -56,6 +60,7 @@ def generate_launch_description():
                     'planner_distance_threshold': 100.0,
                     'command_steps': 12,
                     'use_measured_state': True,
+                    'adapter': 'segment',
                     'brake_check': LaunchConfiguration('brake_check'),
                     'control_rate': LaunchConfiguration('control_rate'),
                 },

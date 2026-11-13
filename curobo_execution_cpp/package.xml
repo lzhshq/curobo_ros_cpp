@@ -17,6 +17,7 @@
   <depend>control_msgs</depend>
   <depend>trajectory_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>curobo_execution_interfaces</depend>
   <depend>std_srvs</depend>
 
   <export>

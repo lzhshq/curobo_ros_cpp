@@ -19,6 +19,7 @@
   <depend>std_srvs</depend>
   <depend>curobo_core_cpp</depend>
   <depend>curobo_execution_cpp</depend>
+  <depend>curobo_planner_interfaces</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

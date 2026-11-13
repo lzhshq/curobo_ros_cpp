@@ -13,6 +13,7 @@
 #include "curobo_planner_interfaces/srv/clear_objects.hpp"
 #include "curobo_planner_interfaces/srv/list_objects.hpp"
 #include "curobo_planner_interfaces/srv/update_object_pose.hpp"
+#include "curobo_planner_interfaces/msg/obstacle_update.hpp"
 #include "curobo_planner_interfaces/srv/plan_pose.hpp"
 #include "curobo_planner_interfaces/srv/remove_object.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
@@ -59,6 +60,8 @@ class PlannerNode : public rclcpp::Node {
       std::shared_ptr<UpdateObjectPose::Response> response);
   void list_objects_callback(const std::shared_ptr<ListObjects::Request> request,
                              std::shared_ptr<ListObjects::Response> response);
+  void world_update_callback(
+      const curobo_planner_interfaces::msg::ObstacleUpdate::SharedPtr message);
 
   bool reorder_start(const sensor_msgs::msg::JointState& message,
                      const std::vector<std::string>& desired,
@@ -71,6 +74,7 @@ class PlannerNode : public rclcpp::Node {
   std::unique_ptr<PlannerCore> core_;
 
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
+  rclcpp::Subscription<curobo_planner_interfaces::msg::ObstacleUpdate>::SharedPtr world_sub_;
   rclcpp::Service<PlanPose>::SharedPtr plan_srv_;
   rclcpp::Service<AddObject>::SharedPtr add_object_srv_;
   rclcpp::Service<RemoveObject>::SharedPtr remove_object_srv_;

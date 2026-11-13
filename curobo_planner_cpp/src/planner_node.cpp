@@ -140,6 +140,11 @@ PlannerNode::PlannerNode() : rclcpp::Node("curobo_planner") {
   joint_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
       state_topic, 10,
       std::bind(&PlannerNode::joint_state_callback, this, std::placeholders::_1));
+  rclcpp::QoS world_qos(1);
+  world_qos.transient_local();
+  world_sub_ = this->create_subscription<curobo_planner_interfaces::msg::ObstacleUpdate>(
+      "/curobo_world/obstacle_update", world_qos,
+      std::bind(&PlannerNode::world_update_callback, this, std::placeholders::_1));
 
   plan_srv_ = this->create_service<PlanPose>(
       "~/generate_trajectory",
@@ -436,6 +441,56 @@ void PlannerNode::clear_objects_callback(
     RCLCPP_INFO(this->get_logger(), "cleared %d objects", count);
   } else {
     RCLCPP_WARN(this->get_logger(), "clear_objects failed: %s", error.c_str());
+  }
+}
+
+void PlannerNode::world_update_callback(
+    const curobo_planner_interfaces::msg::ObstacleUpdate::SharedPtr message) {
+  curobo_ros_cpp::ObjectSpec object;
+  object.name = message->name;
+  object.position = {static_cast<float>(message->pose.position.x),
+                     static_cast<float>(message->pose.position.y),
+                     static_cast<float>(message->pose.position.z)};
+  object.quaternion = {static_cast<float>(message->pose.orientation.w),
+                       static_cast<float>(message->pose.orientation.x),
+                       static_cast<float>(message->pose.orientation.y),
+                       static_cast<float>(message->pose.orientation.z)};
+  object.dimensions = {static_cast<float>(message->dimensions.x),
+                       static_cast<float>(message->dimensions.y),
+                       static_cast<float>(message->dimensions.z)};
+  switch (message->type) {
+    case 0: object.type = ObjectType::CUBOID; break;
+    case 1: object.type = ObjectType::SPHERE; break;
+    case 2: object.type = ObjectType::CAPSULE; break;
+    case 3: object.type = ObjectType::CYLINDER; break;
+    default: return;
+  }
+  std::lock_guard<std::mutex> lock(plan_mutex_);
+  std::string error;
+  bool success = false;
+  if (message->command == curobo_planner_interfaces::msg::ObstacleUpdate::ADD) {
+    core_->remove_object(object.name, error);
+    success = core_->add_object(object, error);
+  } else if (message->command ==
+             curobo_planner_interfaces::msg::ObstacleUpdate::UPDATE) {
+    success = core_->update_object_pose(object.name, object.position,
+                                        object.quaternion, error);
+    if (!success) {
+      success = core_->add_object(object, error);
+    }
+  } else if (message->command ==
+             curobo_planner_interfaces::msg::ObstacleUpdate::REMOVE) {
+    success = core_->remove_object(object.name, error);
+  } else if (message->command ==
+             curobo_planner_interfaces::msg::ObstacleUpdate::CLEAR) {
+    success = core_->clear_objects(error);
+  }
+  if (success) {
+    publish_scene_markers();
+  } else {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                         "world update failed for '%s': %s",
+                         object.name.c_str(), error.c_str());
   }
 }
 

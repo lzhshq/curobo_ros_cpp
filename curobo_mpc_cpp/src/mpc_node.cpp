@@ -23,6 +23,7 @@
 #include "curobo_robot_runtime/motion_planner.h"
 #include "curobo_robot_runtime/mpc.h"
 #include "curobo_robot_runtime/scene.h"
+#include "curobo_planner_interfaces/msg/obstacle_update.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
@@ -96,8 +97,8 @@ class MpcNode : public rclcpp::Node {
     brake_deceleration_ = this->declare_parameter<double>("brake_deceleration", 2.0);
     const std::string fault_topic = this->declare_parameter<std::string>(
         "fault_topic", "/curobo_mpc/fault");
-    bat_topic_ = this->declare_parameter<std::string>(
-        "bat_topic", "/curobo_demo/bat_pose");
+    world_topic_ = this->declare_parameter<std::string>(
+        "world_topic", "/curobo_world/obstacle_update");
     bat_length_ = this->declare_parameter<double>("bat_length", 0.4);
     bat_radius_ = this->declare_parameter<double>("bat_radius", 0.03);
     bat_initial_x_ = this->declare_parameter<double>("bat_initial_x", 0.45);
@@ -131,26 +132,6 @@ class MpcNode : public rclcpp::Node {
     }
     planner_ = &planner_core_->motion_planner();
     scene_ = &planner_core_->scene();
-    {
-      curobo_ros_cpp::ObjectSpec bat;
-      bat.type = curobo_ros_cpp::ObjectType::CAPSULE;
-      bat.name = "bat";
-      bat.position = {static_cast<float>(bat_initial_x_),
-                      static_cast<float>(bat_initial_y_),
-                      static_cast<float>(bat_initial_z_)};
-      // The capsule is local +Z; rotate it onto world +X.
-      bat.quaternion = {0.70710678F, 0.0F, 0.70710678F, 0.0F};
-      bat.dimensions = {static_cast<float>(bat_radius_),
-                        static_cast<float>(bat_length_), 0.0F};
-      if (!planner_core_->add_object(bat, world_error)) {
-        throw std::runtime_error("add bat failed: " + world_error);
-      }
-      bat_pose_.position = bat.position;
-      bat_pose_.quaternion = bat.quaternion;
-      has_bat_pose_ = true;
-      RCLCPP_INFO(this->get_logger(), "bat capsule added: length=%.2f radius=%.2f",
-                  bat_length_, bat_radius_);
-    }
     curobo::robot::MpcConfig mpc_config;
     mpc_config.trajectory_dt = static_cast<float>(trajectory_dt);
     mpc_ = std::make_unique<curobo::robot::MpcController>(*planner_, mpc_config);
@@ -282,8 +263,11 @@ class MpcNode : public rclcpp::Node {
                               std::placeholders::_2));
     fault_sub_ = this->create_subscription<std_msgs::msg::Bool>(
         fault_topic, 10, std::bind(&MpcNode::fault_callback, this, std::placeholders::_1));
-    bat_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-        bat_topic_, 10, std::bind(&MpcNode::bat_callback, this, std::placeholders::_1));
+    rclcpp::QoS world_qos(1);
+    world_qos.transient_local();
+    world_sub_ = this->create_subscription<curobo_planner_interfaces::msg::ObstacleUpdate>(
+        world_topic_, world_qos,
+        std::bind(&MpcNode::world_update_callback, this, std::placeholders::_1));
     // Event-driven: poll the adapter at 50 Hz and send the next segment as soon
     // as the previous JTC segment is complete. There is no fixed command wait.
     accept_timer_ = this->create_wall_timer(
@@ -397,21 +381,63 @@ class MpcNode : public rclcpp::Node {
     if (fault_) set_status("fault");
   }
 
-  void bat_callback(const geometry_msgs::msg::PoseStamped::SharedPtr message) {
-    const auto& o = message->pose.orientation;
-    const double norm = std::sqrt(o.x * o.x + o.y * o.y + o.z * o.z + o.w * o.w);
-    if (!std::isfinite(norm) || norm < 1e-9) return;
-    curobo::robot::Pose pose;
-    pose.position = {static_cast<float>(message->pose.position.x),
-                     static_cast<float>(message->pose.position.y),
-                     static_cast<float>(message->pose.position.z)};
-    pose.position[0] = static_cast<float>(bat_initial_x_);
-    pose.position[1] = static_cast<float>(bat_initial_y_);
-    // Bat capsule's local axis is Z; keep it rotated onto world X.
-    pose.quaternion = {0.70710678F, 0.0F, 0.70710678F, 0.0F};
-    std::lock_guard<std::mutex> lock(data_mutex_);
-    bat_pose_ = pose;
-    has_bat_pose_ = true;
+  void world_update_callback(
+      const curobo_planner_interfaces::msg::ObstacleUpdate::SharedPtr message) {
+    curobo_ros_cpp::ObjectSpec object;
+    object.name = message->name;
+    object.position = {static_cast<float>(message->pose.position.x),
+                       static_cast<float>(message->pose.position.y),
+                       static_cast<float>(message->pose.position.z)};
+    object.quaternion = {static_cast<float>(message->pose.orientation.w),
+                         static_cast<float>(message->pose.orientation.x),
+                         static_cast<float>(message->pose.orientation.y),
+                         static_cast<float>(message->pose.orientation.z)};
+    object.dimensions = {static_cast<float>(message->dimensions.x),
+                         static_cast<float>(message->dimensions.y),
+                         static_cast<float>(message->dimensions.z)};
+    switch (message->type) {
+      case 0: object.type = curobo_ros_cpp::ObjectType::CUBOID; break;
+      case 1: object.type = curobo_ros_cpp::ObjectType::SPHERE; break;
+      case 2: object.type = curobo_ros_cpp::ObjectType::CAPSULE; break;
+      case 3: object.type = curobo_ros_cpp::ObjectType::CYLINDER; break;
+      default: return;
+    }
+    std::lock_guard<std::mutex> lock(mpc_mutex_);
+    std::string error;
+    if (message->command == curobo_planner_interfaces::msg::ObstacleUpdate::ADD) {
+      planner_core_->remove_object(object.name, error);
+      if (!planner_core_->add_object(object, error)) {
+        RCLCPP_WARN(this->get_logger(), "world add '%s' failed: %s",
+                    object.name.c_str(), error.c_str());
+        return;
+      }
+    } else if (message->command == curobo_planner_interfaces::msg::ObstacleUpdate::UPDATE) {
+      if (!planner_core_->update_object_pose(object.name, object.position,
+                                             object.quaternion, error)) {
+        // A late subscriber may have missed the original ADD. Recreate from
+        // the UPDATE payload instead of dropping the obstacle.
+        if (!planner_core_->add_object(object, error)) {
+          RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                               "world update '%s' failed: %s",
+                               object.name.c_str(), error.c_str());
+          return;
+        }
+      }
+    } else if (message->command == curobo_planner_interfaces::msg::ObstacleUpdate::REMOVE) {
+      planner_core_->remove_object(object.name, error);
+    } else if (message->command == curobo_planner_interfaces::msg::ObstacleUpdate::CLEAR) {
+      planner_core_->clear_objects(error);
+    } else {
+      return;
+    }
+    if (object.name == "bat") {
+      std::lock_guard<std::mutex> data_lock(data_mutex_);
+      bat_pose_.position = object.position;
+      bat_pose_.quaternion = object.quaternion;
+      has_bat_pose_ = true;
+    }
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                          "world update applied: '%s'", object.name.c_str());
   }
 
   bool snapshot_state(std::vector<float>& q) {
@@ -452,9 +478,6 @@ class MpcNode : public rclcpp::Node {
     }
     std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
     planner_mode_ = false;
-    if (has_bat_pose_) {
-      sync_bat_scene(bat_pose_);
-    }
     check_cuda(cudaMemcpy(d_goal_pos_, positions.data(), positions.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "goal pos");
     check_cuda(cudaMemcpy(d_goal_quat_, quats.data(), quats.size() * sizeof(float),
@@ -604,18 +627,7 @@ class MpcNode : public rclcpp::Node {
     set_status("goal received");
   }
 
-  void sync_bat_scene(const curobo::robot::Pose& pose) {
-    std::string error;
-    if (!planner_core_->update_object_pose("bat", pose.position, pose.quaternion, error)) {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                           "bat scene update failed: %s", error.c_str());
-    }
-  }
-
   bool plan_far_locked(const std::vector<float>& q, const char* source) {
-    if (has_bat_pose_) {
-      sync_bat_scene(bat_pose_);
-    }
     check_cuda(cudaMemcpy(d_q_, q.data(), q.size() * sizeof(float),
                           cudaMemcpyHostToDevice), "far replan current");
     curobo::robot::PoseMotionPlanningRequest request;
@@ -739,9 +751,6 @@ class MpcNode : public rclcpp::Node {
       if (active) {
         try {
           std::lock_guard<std::mutex> mpc_lock(mpc_mutex_);
-          if (has_bat) {
-            sync_bat_scene(bat_pose);
-          }
           std::vector<float> zero(static_cast<std::size_t>(dof_), 0.0F);
           check_cuda(cudaMemcpy(d_q_, q.data(), q.size() * sizeof(float),
                                 cudaMemcpyHostToDevice), "q");
@@ -946,7 +955,7 @@ class MpcNode : public rclcpp::Node {
   std::string command_topic_;
   std::string adapter_name_;
   std::string action_;
-  std::string bat_topic_;
+  std::string world_topic_;
   double bat_length_ = 0.6;
   double bat_radius_ = 0.03;
   double bat_initial_x_ = 0.45;
@@ -980,7 +989,7 @@ class MpcNode : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr fault_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr bat_sub_;
+  rclcpp::Subscription<curobo_planner_interfaces::msg::ObstacleUpdate>::SharedPtr world_sub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_srv_;
   rclcpp::TimerBase::SharedPtr accept_timer_;
   rclcpp::TimerBase::SharedPtr far_replan_timer_;

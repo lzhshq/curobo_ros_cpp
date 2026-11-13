@@ -51,3 +51,28 @@ The `curobo_planner` services own the planner world. The MPC node still creates
 its own `PlannerCore` scene; a later step should make the MPC consume the same
 world (service/topic or one unified node). The API and update semantics are
 already shared so that migration does not change the obstacle model.
+
+
+## Generic update topic
+
+Planner and MPC both subscribe to:
+
+```text
+/curobo_world/obstacle_update
+```
+
+Type:
+
+```text
+curobo_planner_interfaces/ObstacleUpdate
+```
+
+Commands:
+
+```text
+ADD / UPDATE / REMOVE / CLEAR
+```
+
+The publisher uses transient-local QoS. A late subscriber that only receives
+`UPDATE` recreates the object from the update payload, so startup order does not
+matter.

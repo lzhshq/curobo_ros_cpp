@@ -19,7 +19,7 @@ def generate_launch_description():
         DeclareLaunchArgument('motion_amplitude', default_value='0.10'),
         DeclareLaunchArgument('motion_frequency', default_value='0.1'),
         DeclareLaunchArgument(
-            'pose_topic', default_value='/curobo_demo/bat_pose'),
+            'world_topic', default_value='/curobo_world/obstacle_update'),
         Node(
             package='curobo_mpc_cpp',
             executable='bat_marker',
@@ -35,7 +35,7 @@ def generate_launch_description():
                 'auto_motion': LaunchConfiguration('auto_motion'),
                 'motion_amplitude': LaunchConfiguration('motion_amplitude'),
                 'motion_frequency': LaunchConfiguration('motion_frequency'),
-                'pose_topic': LaunchConfiguration('pose_topic'),
+                'world_topic': LaunchConfiguration('world_topic'),
             }],
         ),
     ])

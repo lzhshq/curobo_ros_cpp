@@ -5,6 +5,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(builtin_interfaces REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/PlanPose.srv"
@@ -13,7 +14,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ClearObjects.srv"
   "srv/UpdateObjectPose.srv"
   "srv/ListObjects.srv"
-  DEPENDENCIES geometry_msgs sensor_msgs)
+  "msg/ObstacleUpdate.msg"
+  DEPENDENCIES geometry_msgs sensor_msgs builtin_interfaces)
 
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

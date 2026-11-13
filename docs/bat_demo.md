@@ -23,7 +23,7 @@ ros2 launch curobo_planner_cpp rviz.launch.py \
 
 In RViz, enable the `BatControl` InteractiveMarkers display (it is included in
 `planner.rviz`). Hover the orange bat and drag the Y/Z axis handles. The marker
-publishes `/curobo_demo/bat_pose`; the MPC node updates the scene capsule before
+publishes `/curobo_world/obstacle_update`; the MPC node applies it to its scene before
 each `step()`.
 
 ![RViz bat marker](images/rviz_bat_demo.png)
@@ -37,7 +37,7 @@ each `step()`.
 | `bat_initial_x` | 0.45 | fixed X |
 | `bat_initial_y` | 0.0 | initial Y |
 | `bat_initial_z` | 0.55 | initial Z |
-| `bat_topic` | `/curobo_demo/bat_pose` | marker pose input |
+| `world_topic` | `/curobo_world/obstacle_update` | generic obstacle input |
 
 ## Important
 

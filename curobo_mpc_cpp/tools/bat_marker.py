@@ -12,9 +12,10 @@ import math
 import time
 
 import rclpy
-from geometry_msgs.msg import PoseStamped
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from interactive_markers.interactive_marker_server import InteractiveMarkerServer
 from rclpy.node import Node
+from curobo_planner_interfaces.msg import ObstacleUpdate
 from visualization_msgs.msg import InteractiveMarker, InteractiveMarkerControl, Marker
 
 
@@ -32,10 +33,14 @@ class BatMarker(Node):
             self.declare_parameter('motion_amplitude', 0.10).value)
         self.motion_frequency = float(
             self.declare_parameter('motion_frequency', 0.1).value)
-        topic = self.declare_parameter(
-            'pose_topic', '/curobo_demo/bat_pose').value
+        self.world_topic = self.declare_parameter(
+            'world_topic', '/curobo_world/obstacle_update').value
 
-        self.pose_pub = self.create_publisher(PoseStamped, topic, 10)
+        qos = QoSProfile(
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE)
+        self.world_pub = self.create_publisher(ObstacleUpdate, self.world_topic, qos)
         self.server = InteractiveMarkerServer(self, 'curobo_demo/bat')
 
         marker = InteractiveMarker()
@@ -77,7 +82,7 @@ class BatMarker(Node):
 
         self.server.insert(marker, feedback_callback=self.feedback)
         self.server.applyChanges()
-        self.publish_pose(marker.pose, self.get_clock().now().to_msg())
+        self.publish_update(ObstacleUpdate.ADD, marker.pose)
         if self.auto_motion:
             self.start_time = time.monotonic()
             self.create_timer(0.05, self.auto_tick)
@@ -92,24 +97,34 @@ class BatMarker(Node):
             2.0 * math.pi * self.motion_frequency * elapsed)
         self.server.setPose(self.marker_name, pose)
         self.server.applyChanges()
-        self.publish_pose(pose, self.get_clock().now().to_msg())
+        self.publish_update(ObstacleUpdate.UPDATE, pose)
 
-    def publish_pose(self, pose, stamp):
-        message = PoseStamped()
-        message.header.stamp = stamp
-        message.header.frame_id = self.frame_id
+    def publish_update(self, command, pose):
+        message = ObstacleUpdate()
+        message.command = command
+        message.name = 'bat'
+        message.type = 2  # CAPSULE
         message.pose = pose
-        self.pose_pub.publish(message)
+        # The capsule's local axis is +Z; rotate it onto world +X.
+        message.pose.orientation.x = 0.0
+        message.pose.orientation.y = math.sin(math.pi / 4.0)
+        message.pose.orientation.z = 0.0
+        message.pose.orientation.w = math.cos(math.pi / 4.0)
+        message.dimensions.x = self.radius
+        message.dimensions.y = self.length
+        message.dimensions.z = 0.0
+        message.stamp = self.get_clock().now().to_msg()
+        self.world_pub.publish(message)
 
     def feedback(self, feedback):
         if self.auto_motion:
             return
         pose = feedback.pose
         pose.position.x = self.fixed_x  # only Z is editable
-        pose.position.y = self.fixed_y
+        pose.position.y = self.initial_y
         self.server.setPose(feedback.marker_name, pose)
         self.server.applyChanges()
-        self.publish_pose(pose, self.get_clock().now().to_msg())
+        self.publish_update(ObstacleUpdate.UPDATE, pose)
 
 
 def main():

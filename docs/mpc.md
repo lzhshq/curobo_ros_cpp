@@ -174,7 +174,7 @@ converges to ~1–2 cm, not sub-cm.
 commands. It sets:
 
 ```text
-command_steps = 16   # samples, 4 knots for Franka
+command_steps = 12   # samples, 3 knots for Franka
 use_measured_state = true
 planner_distance_threshold = 100
 ```
@@ -189,7 +189,8 @@ executed_knots_ = command_knots
 ```
 
 Using 4 samples (one knot) falls inside the B-spline's initial flat segment and
-produces no motion. 16 samples (four knots) tracks a near target.
+produces no motion. 12 samples (three knots) is the current tuned value;
+16 samples is the safer fallback.
 
 Run one target without the A/B driver:
 
@@ -224,7 +225,7 @@ It tracks a YZ circle:
 ```text
 center = (0.161283, 0.0, 0.637)
 radius = 0.04 m
-period = 5 s
+period = 10 s
 target rate = 10 Hz
 ```
 

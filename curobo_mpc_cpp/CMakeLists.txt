@@ -27,6 +27,17 @@ find_library(CUROBO_ROBOT_RUNTIME
   REQUIRED)
 
 add_executable(mpc_node src/mpc_node.cpp)
+
+add_executable(mpc_loop_spike examples/mpc_loop_spike.cpp)
+target_include_directories(mpc_loop_spike PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/examples"
+  "${CUROBO_RUNTIME_ROOT}/robot/include")
+target_link_libraries(mpc_loop_spike PRIVATE
+  curobo_core_cpp::curobo_core_cpp
+  "${CUROBO_ROBOT_RUNTIME}"
+  CUDA::cudart)
+set_target_properties(mpc_loop_spike PROPERTIES
+  BUILD_RPATH "${CUROBO_RUNTIME_ROOT}/build/robot")
 target_include_directories(mpc_node PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
   "${CUROBO_RUNTIME_ROOT}/robot/include")

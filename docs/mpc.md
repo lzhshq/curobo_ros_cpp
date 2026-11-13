@@ -131,3 +131,34 @@ Current limitations:
 - goal is assumed to be in the artifact base frame (no TF transform);
 - no RViz goal interaction yet;
 - tested against fake FPC only.
+
+## Official-style loop spike
+
+`curobo_mpc_cpp/examples/mpc_loop_spike.cpp` follows the official
+`cpp_runtime/robot/tests/mpc_test.cpp` state progression:
+
+```text
+plan_pose → seed knots
+→ mpc.reset(goal_q, seed_knots)
+→ FakeQuinticController
+→ step(executed_knots = 1 / 4 / 0)
+→ period = 16 * dt, handoff = 4 * dt
+→ accept
+```
+
+Run:
+
+```bash
+./build/curobo_mpc_cpp/mpc_loop_spike \
+  /home/vitai/curobo-fast/cpp_runtime/robot/artifacts/franka
+```
+
+Result on Franka:
+
+```text
+A: reached error=0.00035 rad, accepted=43, tick=85
+B: reached error=0.00146 rad, accepted=25, tick=47
+```
+
+This confirms the MPC core/seed/timing can reach both targets. The ROS/JTC
+node still needs the same state progression ported into its execution loop.
